@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Dreamine.Secs.Com</AssemblyName>
+    <RootNamespace>Dreamine.Secs.Com</RootNamespace>
+    <PackageId>Dreamine.Secs.Com</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Dreamine Core Team</Authors>
+    <Company>Dreamine</Company>
+    <Description>Native Dreamine SECS-II and HSMS communication runtime with explicit verification boundaries.</Description>
+    <PackageTags>dreamine;secs;communication;hsms;runtime</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com</RepositoryUrl>
+    <Title>Dreamine.Secs.Com</Title>
+    <Copyright>© 2026 Dreamine Core Team. All rights reserved.</Copyright>
+    <PackageProjectUrl>https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="icon.png" Pack="true" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Secs.Abstractions\Dreamine.Secs.Abstractions.csproj" />
+    <ProjectReference Include="..\Communication.Abstractions\Dreamine.Communication.Abstractions.csproj" />
+    <ProjectReference Include="..\Communication.Core\Dreamine.Communication.Core.csproj" />
+    <ProjectReference Include="..\Communication.Sockets\Dreamine.Communication.Sockets.csproj" />
+  </ItemGroup>
+</Project>

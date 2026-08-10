@@ -1,0 +1,8 @@
+flowchart LR
+    App["Application"] --> Session["HsmsSession"]
+    Session --> State["HsmsStateMachine"]
+    Session --> Tx["Transaction managers"]
+    Session --> Codec["HSMS + SECS-II codecs"]
+    Session --> Contracts["Dreamine.Secs.Abstractions"]
+    Session --> Communication["Communication lifecycle contracts"]
+    Session --> Tcp["HSMS-specific TCP channel"]

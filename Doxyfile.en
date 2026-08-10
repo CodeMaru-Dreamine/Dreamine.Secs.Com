@@ -1,0 +1,46 @@
+# Generated from project metadata by 10_DOCUMENTS/Doxygen/Generate-DoxygenConfigs.ps1
+DOXYFILE_ENCODING       = UTF-8
+PROJECT_NAME            = "Dreamine.Secs.Com"
+PROJECT_NUMBER          = "1.0.0"
+PROJECT_BRIEF           = "Native implementation boundary for future Dreamine SECS communication."
+OUTPUT_DIRECTORY        = "../../../10_DOCUMENTS/Doxygen/100. Library/Dreamine.Secs.Com/EN"
+OUTPUT_LANGUAGE         = English
+ENABLED_SECTIONS        = EN
+
+INPUT                    = "." "README.md"
+USE_MDFILE_AS_MAINPAGE   = "README.md"
+FILE_PATTERNS            = *.cs *.md
+RECURSIVE                = YES
+EXCLUDE                  = bin obj .git .vs node_modules TestResults wwwroot "README_KO.md"
+EXCLUDE_PATTERNS         = */bin/* */obj/* */.git/* */.vs/* */node_modules/* */TestResults/* */wwwroot/* */Generated/* */generated/* *.g.cs *.g.i.cs *.Designer.cs *.AssemblyInfo.cs *.AssemblyAttributes.cs
+
+EXTRACT_ALL              = YES
+EXTRACT_PRIVATE          = YES
+EXTRACT_STATIC           = YES
+HIDE_UNDOC_MEMBERS       = NO
+HIDE_UNDOC_CLASSES       = NO
+FULL_PATH_NAMES          = NO
+MARKDOWN_SUPPORT         = YES
+SOURCE_BROWSER           = YES
+INLINE_SOURCES           = YES
+GENERATE_TREEVIEW        = YES
+SEARCHENGINE             = YES
+
+GENERATE_HTML            = YES
+GENERATE_LATEX           = NO
+GENERATE_XML             = YES
+LAYOUT_FILE              = "../../../10_DOCUMENTS/Doxygen/DoxygenLayout.en.xml"
+HTML_COLORSTYLE          = TOGGLE
+
+HAVE_DOT                 = YES
+DOT_PATH                 = "C:/Program Files (x86)/Graphviz/bin"
+CLASS_GRAPH              = YES
+COLLABORATION_GRAPH      = YES
+GROUP_GRAPHS             = YES
+DOT_IMAGE_FORMAT         = png
+
+QUIET                    = NO
+WARNINGS                 = YES
+WARN_IF_UNDOCUMENTED     = YES
+WARN_IF_DOC_ERROR        = YES
+WARN_LOGFILE             = "doxygen-en.warnings.log"
