@@ -49,9 +49,24 @@ public sealed class SecsItemCodecTests
     [Fact]
     public void LengthHeaderUsesOneTwoAndThreeBytes()
     {
-        Assert.Equal(1, _codec.Encode(new SecsBinaryItem(new byte[255]))[0] & 3);
-        Assert.Equal(2, _codec.Encode(new SecsBinaryItem(new byte[256]))[0] & 3);
-        Assert.Equal(3, _codec.Encode(new SecsBinaryItem(new byte[65536]))[0] & 3);
+        foreach (var (length, lengthBytes) in new[] { (0, 1), (255, 1), (256, 2), (65_535, 2), (65_536, 3) })
+        {
+            var encoded = _codec.Encode(new SecsBinaryItem(new byte[length]));
+            Assert.Equal(lengthBytes, encoded[0] & 3);
+            Assert.Equal(length, Assert.IsType<SecsBinaryItem>(_codec.Decode(encoded)).Values.Length);
+        }
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0x22 })]
+    [InlineData(new byte[] { 0x22, 0x00 })]
+    [InlineData(new byte[] { 0x23 })]
+    [InlineData(new byte[] { 0x23, 0x00 })]
+    [InlineData(new byte[] { 0x23, 0x00, 0x00 })]
+    public void TruncatedLengthFieldIsRejected(byte[] bytes)
+    {
+        var exception = Assert.Throws<SecsDecodeException>(() => _codec.Decode(bytes));
+        Assert.Equal(SecsValidationCode.Truncated, exception.Code);
     }
 
     [Theory]
@@ -133,13 +148,54 @@ public sealed class SecsItemCodecTests
     }
 
     [Fact]
+    public void MaximumMessageLengthAcceptsExactBoundaryAndRejectsOneByteMore()
+    {
+        var codec = new SecsItemCodec(new SecsItemCodecOptions { MaximumMessageLength = 1024 });
+        var exact = new SecsBinaryItem(new byte[1021]);
+
+        Assert.Equal(1024, codec.Encode(exact).Length);
+        Assert.Equal(1021, Assert.IsType<SecsBinaryItem>(codec.Decode(codec.Encode(exact))).Values.Length);
+        Assert.Equal(SecsValidationCode.SizeLimitExceeded, Assert.Throws<SecsDecodeException>(() => codec.Encode(new SecsBinaryItem(new byte[1022]))).Code);
+    }
+
+    [Fact]
+    public void ArbitraryBytesFailOnlyWithStructuredProtocolErrors()
+    {
+        const int seed = 20260810;
+        var random = new Random(seed);
+        var codec = new SecsItemCodec(new SecsItemCodecOptions
+        {
+            MaximumMessageLength = 1024,
+            MaximumNestingDepth = 16,
+            MaximumListItemCount = 128
+        });
+
+        for (var index = 0; index < 5_000; index++)
+        {
+            var bytes = RandomBytes(random, random.Next(0, 1025));
+            try
+            {
+                var decoded = codec.Decode(bytes);
+                Assert.Equal(bytes, codec.Encode(decoded));
+            }
+            catch (Exception exception)
+            {
+                Assert.True(exception is SecsProtocolException, $"Seed {seed}, case {index}, exception {exception.GetType().FullName}");
+            }
+        }
+    }
+
+    [Fact]
     public void RandomValidItemsRoundTripDeterministically()
     {
         var random = new Random(20260809);
         for (var index = 0; index < 500; index++)
         {
             var item = CreateRandomItem(random, 0);
-            AssertEquivalent(item, _codec.Decode(_codec.Encode(item)));
+            var encoded = _codec.Encode(item);
+            var decoded = _codec.Decode(encoded);
+            AssertEquivalent(item, decoded);
+            Assert.Equal(encoded, _codec.Encode(decoded));
         }
     }
 

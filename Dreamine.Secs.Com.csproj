@@ -26,6 +26,11 @@
     <None Include="icon.png" Pack="true" PackagePath="\" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Remove="samples\**\*.cs" />
+    <EmbeddedResource Remove="samples\**\*" />
+    <None Remove="samples\**\*" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Secs.Abstractions\Dreamine.Secs.Abstractions.csproj" />
     <ProjectReference Include="..\Communication.Abstractions\Dreamine.Communication.Abstractions.csproj" />
     <ProjectReference Include="..\Communication.Core\Dreamine.Communication.Core.csproj" />

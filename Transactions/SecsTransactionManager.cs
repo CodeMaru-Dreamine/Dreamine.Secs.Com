@@ -86,7 +86,7 @@ public sealed class SecsTransactionManager : IAsyncDisposable
         }
         var primary = pending.Primary;
         var validReplyFunction = secondary.Function.Value == 0 ||
-            (secondary.Function.IsSecondary && secondary.Function.Value > primary.Function.Value);
+            (secondary.Function.IsSecondary && secondary.Function.Value == primary.Function.Value + 1);
         if (secondary.ReplyExpected || !validReplyFunction ||
             secondary.SessionId != primary.SessionId || secondary.Stream != primary.Stream)
             return SecsTransactionCompletionStatus.InvalidCorrelation;

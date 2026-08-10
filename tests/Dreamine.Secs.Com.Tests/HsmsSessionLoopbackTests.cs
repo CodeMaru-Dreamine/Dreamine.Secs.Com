@@ -126,6 +126,34 @@ public sealed class HsmsSessionLoopbackTests
     }
 
     [Fact]
+    public async Task ActiveAutoReconnectCompletesOneHundredCyclesWithVirtualT5()
+    {
+        var port = ReservePort();
+        var activeTime = new ManualTimeProvider();
+        await using var passive = CreateSession(port, SecsConnectionMode.Passive, SecsRole.Equipment);
+        await using var active = CreateSession(port, SecsConnectionMode.Active, SecsRole.Host, autoReconnect: true, timeProvider: activeTime);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await ConnectPairAsync(passive, active, timeout.Token);
+        await active.SelectAsync(timeout.Token);
+
+        for (var cycle = 0; cycle < 100; cycle++)
+        {
+            await passive.DisconnectAsync(timeout.Token);
+            await WaitUntilAsync(() => active.State is ConnectionState.Faulted or ConnectionState.Disconnected, timeout.Token);
+
+            var passiveReconnect = passive.ConnectAsync(timeout.Token);
+            await WaitUntilAsync(() => passive.State == ConnectionState.Listening, timeout.Token);
+            await WaitUntilAsync(() => activeTime.ScheduledTimerCount >= 1, timeout.Token);
+            activeTime.Advance(TimeSpan.FromSeconds(10));
+
+            await passiveReconnect;
+            await WaitUntilAsync(() => active.State == ConnectionState.Connected, timeout.Token);
+            await active.SelectAsync(timeout.Token);
+            Assert.Equal(HsmsConnectionState.Selected, active.HsmsState);
+        }
+    }
+
+    [Fact]
     public async Task FailedInitialActiveAttemptAlsoRetriesAfterT5()
     {
         var port = ReservePort();
@@ -339,6 +367,25 @@ public sealed class HsmsSessionLoopbackTests
         await allReceived.Task.WaitAsync(timeout.Token);
         Assert.Equal(count, received.Count);
         foreach (var index in Enumerable.Range(1, count)) Assert.Equal($"PAYLOAD-{index:D4}", received[(uint)index]);
+    }
+
+    [Fact]
+    public async Task PassiveHostAcceptsOneHundredReconnectCycles()
+    {
+        var port = ReservePort();
+        await using var passiveHost = CreateSession(port, SecsConnectionMode.Passive, SecsRole.Host);
+        await using var activeEquipment = CreateSession(port, SecsConnectionMode.Active, SecsRole.Equipment);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        for (var cycle = 0; cycle < 100; cycle++)
+        {
+            await ConnectPairAsync(passiveHost, activeEquipment, timeout.Token);
+            await activeEquipment.SelectAsync(timeout.Token);
+            await activeEquipment.LinktestAsync(timeout.Token);
+            await activeEquipment.DisconnectAsync(timeout.Token);
+            await WaitUntilAsync(() => passiveHost.State == ConnectionState.Disconnected, timeout.Token);
+            Assert.Equal(HsmsConnectionState.NotConnected, passiveHost.HsmsState);
+        }
     }
 
     private static HsmsSession CreateSession(int port, SecsConnectionMode mode, SecsRole role, bool autoReconnect = false, TimeProvider? timeProvider = null, ISecsDiagnosticSink? diagnostics = null) =>

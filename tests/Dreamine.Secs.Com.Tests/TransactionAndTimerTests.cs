@@ -36,13 +36,13 @@ public sealed class TransactionAndTimerTests
     }
 
     [Fact]
-    public async Task MultipleConcurrentTransactionsCompleteOutOfOrder()
+    public async Task OneThousandConcurrentTransactionsCompleteOutOfOrder()
     {
         await using var manager = new SecsTransactionManager();
-        var waits = Enumerable.Range(1, 100).Select(index => manager.RegisterPrimaryAsync(Primary((uint)index), TimeSpan.FromSeconds(45))).ToArray();
-        foreach (var index in Enumerable.Range(1, 100).Reverse()) Assert.Equal(SecsTransactionCompletionStatus.Completed, manager.TryComplete(Secondary((uint)index)));
+        var waits = Enumerable.Range(1, 1_000).Select(index => manager.RegisterPrimaryAsync(Primary((uint)index), TimeSpan.FromSeconds(45))).ToArray();
+        foreach (var index in Enumerable.Range(1, 1_000).Reverse()) Assert.Equal(SecsTransactionCompletionStatus.Completed, manager.TryComplete(Secondary((uint)index)));
         var results = await Task.WhenAll(waits);
-        Assert.Equal(100, results.Length);
+        Assert.Equal(1_000, results.Length);
         Assert.Equal(0, manager.OutstandingCount);
     }
 
@@ -70,6 +70,19 @@ public sealed class TransactionAndTimerTests
         var correctFunction = new SecsMessage(new SecsSessionId(1), new SecsStream(1), new SecsFunction(4), false, new SecsSystemBytes(21));
         manager.TryComplete(correctFunction);
         _ = await pending;
+    }
+
+    [Fact]
+    public async Task UnrelatedHigherSecondaryDoesNotConsumeTransaction()
+    {
+        await using var manager = new SecsTransactionManager();
+        var pending = manager.RegisterPrimaryAsync(Primary(23), TimeSpan.FromSeconds(45));
+        var unrelated = new SecsMessage(new SecsSessionId(1), new SecsStream(1), new SecsFunction(4), false, new SecsSystemBytes(23));
+
+        Assert.Equal(SecsTransactionCompletionStatus.InvalidCorrelation, manager.TryComplete(unrelated));
+        Assert.Equal(1, manager.OutstandingCount);
+        Assert.Equal(SecsTransactionCompletionStatus.Completed, manager.TryComplete(Secondary(23)));
+        Assert.Equal((byte)2, (await pending).Function.Value);
     }
 
     [Fact]
