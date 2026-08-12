@@ -1,6 +1,8 @@
-# Performance baseline
+# Historical performance evidence
 
-Measured 2026-08-10 on Windows 10.0.26200, x64, 16 logical processors (Intel64 family 6 model 154), Release build, .NET 10.0.10 host using SDK 10.0.400-preview. Values are comparative baselines, not service-level guarantees.
+Current-run performance status: `NOT_RUN`.
+
+The values below are Historical Evidence from a 2026-08-10 run on Windows 10.0.26200, x64, 16 logical processors (Intel64 family 6 model 154), a Release build, and the .NET 10.0.10 host using SDK 10.0.400-preview. They are retained for comparison only. They are not a current release claim, a service-level guarantee, or fresh evidence for the present source.
 
 | Operation | Iterations | Elapsed | Mean | Allocated/op |
 |---|---:|---:|---:|---:|
@@ -9,6 +11,8 @@ Measured 2026-08-10 on Windows 10.0.26200, x64, 16 logical processors (Intel64 f
 | 1 MiB binary item encode + decode | 100 | 147.210 ms | 1.472 ms | 4,194,472 B |
 | HSMS frame encode + decode | 100,000 | 180.852 ms | 1.809 µs | 688 B |
 
-The 1 MiB round trip necessarily materializes encoded and decoded buffers; no optimization was made because the bounded behavior was stable and no release bottleneck was demonstrated. The temporary measurement probe used `Stopwatch` and `GC.GetAllocatedBytesForCurrentThread` and is intentionally not part of the package.
+The historical 1 MiB round trip materialized encoded and decoded buffers. The temporary probe used `Stopwatch` and `GC.GetAllocatedBytesForCurrentThread`, but the probe and its raw result artifact were not retained as a repeatable benchmark in this package. Consequently these numbers cannot be promoted to `PASS` for the current run.
 
-The same run completed 1,000 correlated self-loopback primaries, 100 reconnect cycles, and concurrent primaries in 1.129 s overall; primary P95 was 0.451 ms and the result was Passed.
+The same historical run reported 1,000 correlated self-loopback primaries, 100 reconnect cycles, and concurrent primaries in 1.129 s overall with primary P95 of 0.451 ms. That historical result does not replace fresh functional tests and is not external or field evidence.
+
+To establish a new performance `PASS`, retain a repeatable benchmark/load harness and a fresh artifact recording the exact commit, UTC time, Configuration, SDK/runtime, OS, CPU, message sizes, iteration counts, concurrency, warm-up, measurement method, exit code, and results. Until that is done, the current performance status remains `NOT_RUN`.

@@ -32,6 +32,7 @@ Exported types: **16**
 ### `public sealed class Dreamine.Secs.Com.DreamineSecsCommunicationProvider`
 
 - `Dreamine.Secs.Abstractions.Interfaces.ISecsConnection CreateConnection(Dreamine.Secs.Abstractions.Options.SecsConnectionOptions options)`
+- `Dreamine.Secs.Abstractions.Interfaces.ISecsMessageSession CreateSession(Dreamine.Secs.Abstractions.Options.SecsConnectionOptions options)`
 - `DreamineSecsCommunicationProvider()`
 - `DreamineSecsCommunicationProvider(System.Func<Dreamine.Secs.Abstractions.Options.SecsConnectionOptions, Dreamine.Secs.Abstractions.Hsms.HsmsSessionOptions> optionsFactory, System.TimeProvider timeProvider, Dreamine.Secs.Abstractions.Diagnostics.ISecsDiagnosticSink diagnostics)`
 - `System.String Key { get; }`
@@ -65,8 +66,13 @@ Exported types: **16**
 
 - `Dreamine.Communication.Abstractions.Enums.ConnectionState State { get; }`
 - `Dreamine.Secs.Abstractions.Hsms.HsmsConnectionState HsmsState { get; }`
+- `Dreamine.Secs.Abstractions.Interfaces.ISecsPrimaryDispatcher PrimaryDispatcher { get; }`
+- `Dreamine.Secs.Abstractions.Model.SecsConnectionIdentity ConnectionIdentity { get; }`
 - `Dreamine.Secs.Abstractions.Model.SecsSystemBytes AllocateSystemBytes()`
 - `HsmsSession(Dreamine.Secs.Abstractions.Hsms.HsmsSessionOptions options, System.TimeProvider timeProvider, Dreamine.Secs.Abstractions.Diagnostics.ISecsDiagnosticSink diagnostics)`
+- `System.Boolean IsWireObservationEnabled { get; }`
+- `System.Collections.Generic.IAsyncEnumerable<Dreamine.Secs.Abstractions.Hsms.HsmsWireObservation> ReadWireObservationsAsync(System.Threading.CancellationToken cancellationToken)`
+- `System.Int64 DroppedWireObservationCount { get; }`
 - `System.String ProviderKey { get; }`
 - `System.Threading.Tasks.Task ConnectAsync(System.Threading.CancellationToken cancellationToken)`
 - `System.Threading.Tasks.Task DeselectAsync(System.Threading.CancellationToken cancellationToken)`
@@ -74,9 +80,13 @@ Exported types: **16**
 - `System.Threading.Tasks.Task LinktestAsync(System.Threading.CancellationToken cancellationToken)`
 - `System.Threading.Tasks.Task SelectAsync(System.Threading.CancellationToken cancellationToken)`
 - `System.Threading.Tasks.Task SendAsync(Dreamine.Secs.Abstractions.Model.SecsMessage message, System.Threading.CancellationToken cancellationToken)`
+- `System.Threading.Tasks.Task SendAsync(Dreamine.Secs.Abstractions.Model.SecsStream stream, Dreamine.Secs.Abstractions.Model.SecsFunction function, Dreamine.Secs.Abstractions.Model.SecsItem item, System.Threading.CancellationToken cancellationToken)`
 - `System.Threading.Tasks.Task SeparateAsync(System.Threading.CancellationToken cancellationToken)`
+- `System.Threading.Tasks.Task<Dreamine.Secs.Abstractions.Model.SecsMessage> RequestAsync(Dreamine.Secs.Abstractions.Model.SecsDialogueDefinition dialogue, Dreamine.Secs.Abstractions.Model.SecsItem item, System.Threading.CancellationToken cancellationToken)`
 - `System.Threading.Tasks.Task<Dreamine.Secs.Abstractions.Model.SecsMessage> SendPrimaryAsync(Dreamine.Secs.Abstractions.Model.SecsMessage message, System.Threading.CancellationToken cancellationToken)`
 - `System.Threading.Tasks.ValueTask DisposeAsync()`
+- `event System.EventHandler<Dreamine.Secs.Abstractions.Diagnostics.SecsDiagnosticEvent> DiagnosticReceived`
+- `event System.EventHandler<Dreamine.Secs.Abstractions.Hsms.SecsSessionStateChangedEventArgs> StateChanged`
 - `event System.EventHandler<Dreamine.Secs.Abstractions.Model.SecsMessage> MessageReceived`
 
 ### `public sealed class Dreamine.Secs.Com.Hsms.HsmsStateMachine`

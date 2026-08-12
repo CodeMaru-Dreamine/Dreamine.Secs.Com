@@ -23,17 +23,27 @@ public sealed class HsmsStateMachine
     /// <summary>\if KO TCP 연결 설정을 반영합니다. \endif \if EN Applies TCP establishment. \endif</summary>
     public void OnTcpConnected()
     {
+        Emit(OnTcpConnectedDeferred());
+    }
+
+    internal SecsDiagnosticEvent? OnTcpConnectedDeferred()
+    {
         lock (_gate)
         {
             Ensure(HsmsConnectionState.NotConnected, nameof(OnTcpConnected));
-            Transition(HsmsConnectionState.ConnectedNotSelected);
+            return Transition(HsmsConnectionState.ConnectedNotSelected);
         }
     }
 
     /// <summary>\if KO TCP 연결 종료를 반영합니다. \endif \if EN Applies TCP termination. \endif</summary>
     public void OnTcpDisconnected()
     {
-        lock (_gate) Transition(HsmsConnectionState.NotConnected);
+        Emit(OnTcpDisconnectedDeferred());
+    }
+
+    internal SecsDiagnosticEvent? OnTcpDisconnectedDeferred()
+    {
+        lock (_gate) return Transition(HsmsConnectionState.NotConnected);
     }
 
     /// <summary>\if KO 현재 상태에서 Select.req를 만듭니다. \endif \if EN Creates Select.req in the current state. \endif</summary>
@@ -61,10 +71,17 @@ public sealed class HsmsStateMachine
     /// <param name="systemBytes">\if KO 시스템 바이트입니다. \endif \if EN System bytes. \endif</param><returns>\if KO 제어 메시지입니다. \endif \if EN Control message. \endif</returns>
     public HsmsControlMessage CreateSeparateRequest(SecsSystemBytes systemBytes)
     {
+        var request = CreateSeparateRequestDeferred(systemBytes, out var diagnostic);
+        Emit(diagnostic);
+        return request;
+    }
+
+    internal HsmsControlMessage CreateSeparateRequestDeferred(SecsSystemBytes systemBytes, out SecsDiagnosticEvent? diagnostic)
+    {
         lock (_gate)
         {
             Ensure(HsmsConnectionState.Selected, nameof(CreateSeparateRequest));
-            Transition(HsmsConnectionState.ConnectedNotSelected);
+            diagnostic = Transition(HsmsConnectionState.ConnectedNotSelected);
             return Control(HsmsSType.SeparateRequest, systemBytes);
         }
     }
@@ -73,7 +90,15 @@ public sealed class HsmsStateMachine
     /// <param name="message">\if KO 수신 메시지입니다. \endif \if EN Inbound message. \endif</param><returns>\if KO 처리 결과입니다. \endif \if EN Processing result. \endif</returns>
     public HsmsProcessingResult Process(HsmsMessage message)
     {
+        var result = ProcessDeferred(message, out var diagnostic);
+        Emit(diagnostic);
+        return result;
+    }
+
+    internal HsmsProcessingResult ProcessDeferred(HsmsMessage message, out SecsDiagnosticEvent? diagnostic)
+    {
         ArgumentNullException.ThrowIfNull(message);
+        diagnostic = null;
         lock (_gate)
         {
             EnsureConnected(nameof(Process));
@@ -81,41 +106,42 @@ public sealed class HsmsStateMachine
             {
                 if (_state == HsmsConnectionState.Selected) return new(true);
                 var reject = Reject(message.Header, HsmsRejectReason.NotSelected);
-                _diagnostics.Emit(new(SecsDiagnosticKind.Reject, "Data received while not selected.", _state));
+                diagnostic = new(SecsDiagnosticKind.Reject, "Data received while not selected.", _state);
                 return new(false, reject);
             }
-            return ProcessControl((HsmsControlMessage)message);
+            return ProcessControl((HsmsControlMessage)message, out diagnostic);
         }
     }
 
-    private HsmsProcessingResult ProcessControl(HsmsControlMessage message)
+    private HsmsProcessingResult ProcessControl(HsmsControlMessage message, out SecsDiagnosticEvent? diagnostic)
     {
+        diagnostic = null;
         switch (message.SType)
         {
             case HsmsSType.SelectRequest:
                 if (_state == HsmsConnectionState.ConnectedNotSelected)
                 {
-                    Transition(HsmsConnectionState.Selected);
+                    diagnostic = Transition(HsmsConnectionState.Selected);
                     return new(false, Control(HsmsSType.SelectResponse, message.Header.SystemBytes, (byte)HsmsSelectStatus.Success));
                 }
                 return new(false, Control(HsmsSType.SelectResponse, message.Header.SystemBytes, (byte)HsmsSelectStatus.AlreadyActive));
             case HsmsSType.SelectResponse:
                 if (message.Header.HeaderByte3 is (byte)HsmsSelectStatus.Success or (byte)HsmsSelectStatus.AlreadyActive)
                 {
-                    if (_state == HsmsConnectionState.ConnectedNotSelected) Transition(HsmsConnectionState.Selected);
+                    if (_state == HsmsConnectionState.ConnectedNotSelected) diagnostic = Transition(HsmsConnectionState.Selected);
                     return new(true);
                 }
                 return new(false);
             case HsmsSType.DeselectRequest:
                 if (_state == HsmsConnectionState.Selected)
                 {
-                    Transition(HsmsConnectionState.ConnectedNotSelected);
+                    diagnostic = Transition(HsmsConnectionState.ConnectedNotSelected);
                     return new(false, Control(HsmsSType.DeselectResponse, message.Header.SystemBytes, (byte)HsmsDeselectStatus.Success));
                 }
                 return new(false, Control(HsmsSType.DeselectResponse, message.Header.SystemBytes, (byte)HsmsDeselectStatus.NotEstablished));
             case HsmsSType.DeselectResponse:
                 if (message.Header.HeaderByte3 == (byte)HsmsDeselectStatus.Success && _state == HsmsConnectionState.Selected)
-                    Transition(HsmsConnectionState.ConnectedNotSelected);
+                    diagnostic = Transition(HsmsConnectionState.ConnectedNotSelected);
                 return new(true);
             case HsmsSType.LinktestRequest:
                 return new(false, Control(HsmsSType.LinktestResponse, message.Header.SystemBytes));
@@ -124,7 +150,7 @@ public sealed class HsmsStateMachine
                 return new(true);
             case HsmsSType.SeparateRequest:
                 if (_state != HsmsConnectionState.Selected) return new(false);
-                Transition(HsmsConnectionState.ConnectedNotSelected);
+                diagnostic = Transition(HsmsConnectionState.ConnectedNotSelected);
                 return new(false, closeConnection: true);
             default:
                 return new(false, Reject(message.Header, HsmsRejectReason.UnsupportedSType));
@@ -140,10 +166,15 @@ public sealed class HsmsStateMachine
 
     private void Ensure(HsmsConnectionState expected, string operation) { if (_state != expected) throw new HsmsStateException(_state, operation); }
     private void EnsureConnected(string operation) { if (_state == HsmsConnectionState.NotConnected) throw new HsmsStateException(_state, operation); }
-    private void Transition(HsmsConnectionState next)
+    private SecsDiagnosticEvent? Transition(HsmsConnectionState next)
     {
-        if (_state == next) return;
+        if (_state == next) return null;
         var previous = _state; _state = next;
-        _diagnostics.Emit(new(SecsDiagnosticKind.StateChanged, $"HSMS state changed from {previous} to {next}.", next));
+        return new(SecsDiagnosticKind.StateChanged, $"HSMS state changed from {previous} to {next}.", next);
+    }
+
+    private void Emit(SecsDiagnosticEvent? diagnostic)
+    {
+        if (diagnostic is not null) _diagnostics.Emit(diagnostic);
     }
 }

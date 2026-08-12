@@ -1,0 +1,22 @@
+{
+  "schema": "dreamine.secs.message-template-catalog",
+  "version": 1,
+  "templates": [
+    {
+      "name": "PublicSampleW0",
+      "description": "Public, sample-only W=0 message sent from Host to Equipment.",
+      "stream": 127,
+      "function": 3,
+      "waitBit": false,
+      "kind": "primary",
+      "direction": "hostToEquipment",
+      "bodyLogPolicy": "headerOnly",
+      "root": {
+        "format": "ascii",
+        "values": ["PUBLIC-SAMPLE-TEMPLATE"],
+        "children": [],
+        "isSensitive": false
+      }
+    }
+  ]
+}

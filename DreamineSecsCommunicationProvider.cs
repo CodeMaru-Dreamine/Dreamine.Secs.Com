@@ -8,7 +8,7 @@ using Dreamine.Secs.Com.Hsms;
 namespace Dreamine.Secs.Com;
 
 /// <summary>\if KO <para>Dreamine 자체 HSMS-SS 연결을 공급자 계약에 연결합니다.</para> \endif \if EN <para>Connects the native Dreamine HSMS-SS session to the provider contract.</para> \endif</summary>
-public sealed class DreamineSecsCommunicationProvider : ISecsCommunicationProvider
+public sealed class DreamineSecsCommunicationProvider : ISecsMessageSessionProvider
 {
     private readonly Func<SecsConnectionOptions, HsmsSessionOptions> _optionsFactory;
     private readonly TimeProvider _timeProvider;
@@ -30,7 +30,10 @@ public sealed class DreamineSecsCommunicationProvider : ISecsCommunicationProvid
     public string Key => SecsProviderKeys.Dreamine;
 
     /// <inheritdoc />
-    public ISecsConnection CreateConnection(SecsConnectionOptions options)
+    public ISecsConnection CreateConnection(SecsConnectionOptions options) => CreateSession(options);
+
+    /// <inheritdoc />
+    public ISecsMessageSession CreateSession(SecsConnectionOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         if (!string.Equals(options.ProviderKey, Key, StringComparison.OrdinalIgnoreCase))
@@ -45,7 +48,12 @@ public sealed class DreamineSecsCommunicationProvider : ISecsCommunicationProvid
             SessionId = hsmsOptions.SessionId,
             Timers = hsmsOptions.Timers,
             MaximumFrameLength = hsmsOptions.MaximumFrameLength,
-            AutoReconnect = hsmsOptions.AutoReconnect
+            MaximumMessageLength = hsmsOptions.MaximumMessageLength,
+            MaximumNestingDepth = hsmsOptions.MaximumNestingDepth,
+            MaximumListItemCount = hsmsOptions.MaximumListItemCount,
+            AutoReconnect = hsmsOptions.AutoReconnect,
+            WireObservation = hsmsOptions.WireObservation,
+            PrimaryDispatcher = hsmsOptions.PrimaryDispatcher
         };
         return new HsmsSession(hsmsOptions, _timeProvider, _diagnostics);
     }

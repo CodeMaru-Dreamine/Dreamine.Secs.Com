@@ -25,11 +25,25 @@ public sealed class SecsItemCodec : ISecsItemCodec
         _options = options;
     }
 
+    internal int MaximumMessageLength => _options.MaximumMessageLength;
+
     /// <inheritdoc />
     public byte[] Encode(SecsItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
-        var encodedLength = GetEncodedLength(item, 0);
+        var encodedLength = GetEncodedLength(item);
+        return EncodeValidated(item, encodedLength);
+    }
+
+    internal int GetEncodedLength(SecsItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        return GetEncodedLength(item, 0);
+    }
+
+    internal byte[] EncodeValidated(SecsItem item, int encodedLength)
+    {
+        ArgumentNullException.ThrowIfNull(item);
         var writer = new ArrayBufferWriter<byte>(encodedLength);
         EncodeItem(item, writer, 0);
         return writer.WrittenSpan.ToArray();

@@ -10,6 +10,9 @@ namespace Dreamine.Secs.Com.Transactions;
 public sealed class SecsTransactionManager : IAsyncDisposable
 {
     private readonly ConcurrentDictionary<uint, PendingTransaction> _pending = new();
+    private readonly object _monitorGate = new();
+    private readonly object _disposeGate = new();
+    private readonly HashSet<ProtocolDrainRegistration> _protocolDrains = new();
     private readonly object _recentGate = new();
     private readonly HashSet<uint> _recent = new();
     private readonly Queue<uint> _recentOrder = new();
@@ -17,6 +20,8 @@ public sealed class SecsTransactionManager : IAsyncDisposable
     private readonly TimeProvider _timeProvider;
     private readonly ISecsDiagnosticSink _diagnostics;
     private readonly int _recentCapacity;
+    private readonly CancellationTokenSource _lifetime = new();
+    private Task? _disposeTask;
     private int _disposed;
 
     /// <summary>\if KO manager를 만듭니다. \endif \if EN Creates a manager. \endif</summary>
@@ -51,52 +56,104 @@ public sealed class SecsTransactionManager : IAsyncDisposable
     public Task<SecsMessage> RegisterPrimaryAsync(SecsMessage primary, TimeSpan t3, CancellationToken cancellationToken = default)
     {
         if (t3 <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(t3));
-        var completion = RegisterPrimaryDeferred(primary, cancellationToken);
-        _ = StartTimeout(primary.SystemBytes, t3, cancellationToken);
-        return completion;
+        lock (_monitorGate)
+        {
+            var completion = RegisterPrimaryDeferred(primary, cancellationToken);
+            _ = StartTimeout(primary.SystemBytes, t3, cancellationToken);
+            return completion;
+        }
     }
 
     internal Task<SecsMessage> RegisterPrimaryDeferred(SecsMessage primary, CancellationToken cancellationToken)
+        => RegisterPrimaryDeferred(primary, expectedSecondary: null, cancellationToken);
+
+    /// <summary>
+    /// \if KO <para>선언된 인접 정상 Secondary만 허용하는 provider-neutral W1 transaction을 등록합니다.</para> \endif
+    /// \if EN <para>Registers a provider-neutral W1 transaction that accepts only its declared adjacent normal secondary.</para> \endif
+    /// </summary>
+    internal Task<SecsMessage> RegisterPrimaryDeferred(
+        SecsMessage primary,
+        SecsFunction expectedSecondary,
+        CancellationToken cancellationToken)
+        => RegisterPrimaryDeferred(primary, (SecsFunction?)expectedSecondary, cancellationToken);
+
+    private Task<SecsMessage> RegisterPrimaryDeferred(
+        SecsMessage primary,
+        SecsFunction? expectedSecondary,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(primary); ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(primary);
         if (!primary.Function.IsPrimary || !primary.ReplyExpected) throw new ArgumentException("A transaction requires a primary message with W-bit set.", nameof(primary));
+        if (expectedSecondary is { } expected &&
+            (primary.Function.Value == byte.MaxValue ||
+             !expected.IsSecondary ||
+             expected.Value != primary.Function.Value + 1))
+            throw new ArgumentException("The expected normal secondary must be the adjacent even function immediately following the primary.", nameof(expectedSecondary));
         cancellationToken.ThrowIfCancellationRequested();
-        var pending = new PendingTransaction(primary);
-        if (!_pending.TryAdd(primary.SystemBytes.Value, pending)) throw new InvalidOperationException($"System Bytes 0x{primary.SystemBytes.Value:X8} is already open.");
-        return pending.Completion.Task;
+        lock (_monitorGate)
+        {
+            ThrowIfDisposed();
+            var pending = new PendingTransaction(primary, expectedSecondary);
+            if (!_pending.TryAdd(primary.SystemBytes.Value, pending))
+            {
+                pending.CancelFromOwner();
+                throw new InvalidOperationException($"System Bytes 0x{primary.SystemBytes.Value:X8} is already open.");
+            }
+            return pending.Completion.Task;
+        }
     }
 
     internal bool StartTimeout(SecsSystemBytes systemBytes, TimeSpan t3, CancellationToken cancellationToken)
     {
         if (t3 <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(t3));
-        if (!_pending.TryGetValue(systemBytes.Value, out var pending)) return false;
-        if (Interlocked.Exchange(ref pending.MonitorStarted, 1) != 0) throw new InvalidOperationException("The transaction timeout was already started.");
-        BackgroundTaskObserver.Observe(MonitorAsync(pending, t3, cancellationToken), "T3 transaction monitor");
-        return true;
+        lock (_monitorGate)
+        {
+            ThrowIfDisposed();
+            if (!_pending.TryGetValue(systemBytes.Value, out var pending)) return false;
+            var drain = new ProtocolDrainRegistration(this);
+            _protocolDrains.Add(drain);
+            var monitor = pending.TryStartMonitor(token => MonitorAsync(pending, drain, t3, cancellationToken, token, _lifetime.Token));
+            if (monitor is null)
+            {
+                drain.Complete();
+                return false;
+            }
+            BackgroundTaskObserver.Observe(monitor, "T3 transaction monitor and external diagnostic delivery");
+            return true;
+        }
     }
 
     /// <summary>\if KO 수신 Secondary로 열린 transaction을 완료합니다. \endif \if EN Completes an open transaction with an inbound secondary. \endif</summary>
     /// <param name="secondary">\if KO secondary 메시지입니다. \endif \if EN Secondary message. \endif</param><returns>\if KO 상관관계 결과입니다. \endif \if EN Correlation result. \endif</returns>
     public SecsTransactionCompletionStatus TryComplete(SecsMessage secondary)
     {
+        var status = TryCompleteDeferred(secondary, out var diagnostic);
+        if (diagnostic is not null) _diagnostics.Emit(diagnostic);
+        return status;
+    }
+
+    internal SecsTransactionCompletionStatus TryCompleteDeferred(SecsMessage secondary, out SecsDiagnosticEvent? diagnostic)
+    {
         ArgumentNullException.ThrowIfNull(secondary); ThrowIfDisposed();
+        diagnostic = null;
         if (!_pending.TryGetValue(secondary.SystemBytes.Value, out var pending))
         {
             lock (_recentGate) return _recent.Contains(secondary.SystemBytes.Value) ? SecsTransactionCompletionStatus.Duplicate : SecsTransactionCompletionStatus.UnknownSystemBytes;
         }
         var primary = pending.Primary;
         var validReplyFunction = secondary.Function.Value == 0 ||
-            (secondary.Function.IsSecondary && secondary.Function.Value == primary.Function.Value + 1);
+            (pending.ExpectedSecondary is { } expected
+                ? secondary.Function == expected
+                : secondary.Function.IsSecondary && secondary.Function.Value == primary.Function.Value + 1);
         if (secondary.ReplyExpected || !validReplyFunction ||
             secondary.SessionId != primary.SessionId || secondary.Stream != primary.Stream)
             return SecsTransactionCompletionStatus.InvalidCorrelation;
         if (!_pending.TryRemove(secondary.SystemBytes.Value, out pending))
             return IsRecent(secondary.SystemBytes.Value) ? SecsTransactionCompletionStatus.Duplicate : SecsTransactionCompletionStatus.UnknownSystemBytes;
-        pending.Lifetime.Cancel();
+        pending.CancelFromOwner();
         AddRecent(secondary.SystemBytes.Value);
         pending.Completion.TrySetResult(secondary);
-        pending.Lifetime.Dispose();
-        _diagnostics.Emit(new(SecsDiagnosticKind.SecondaryReceived, $"Secondary completed transaction 0x{secondary.SystemBytes.Value:X8}."));
+        diagnostic = new(SecsDiagnosticKind.SecondaryReceived, $"Secondary completed transaction 0x{secondary.SystemBytes.Value:X8}.");
         return SecsTransactionCompletionStatus.Completed;
     }
 
@@ -108,9 +165,8 @@ public sealed class SecsTransactionManager : IAsyncDisposable
         foreach (var pair in _pending.ToArray())
         {
             if (!_pending.TryRemove(pair.Key, out var pending)) continue;
-            pending.Lifetime.Cancel();
+            pending.CancelFromOwner();
             pending.Completion.TrySetException(error);
-            pending.Lifetime.Dispose();
         }
     }
 
@@ -120,22 +176,49 @@ public sealed class SecsTransactionManager : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(error);
         if (!_pending.TryRemove(systemBytes.Value, out var pending)) return false;
-        pending.Lifetime.Cancel();
+        pending.CancelFromOwner();
         pending.Completion.TrySetException(error);
-        pending.Lifetime.Dispose();
         return true;
     }
 
     /// <summary>\if KO 모든 대기를 취소하고 manager를 해제합니다. \endif \if EN Cancels all waiters and disposes the manager. \endif</summary>
     public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 0) AbortAll(new ObjectDisposedException(nameof(SecsTransactionManager)));
-        return ValueTask.CompletedTask;
+        lock (_disposeGate)
+        {
+            _disposeTask ??= DisposeCoreAsync();
+            return new ValueTask(_disposeTask);
+        }
     }
 
-    private async Task MonitorAsync(PendingTransaction pending, TimeSpan t3, CancellationToken callerCancellation)
+    private async Task DisposeCoreAsync()
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(pending.Lifetime.Token, callerCancellation);
+        lock (_monitorGate) Interlocked.Exchange(ref _disposed, 1);
+        try
+        {
+            _lifetime.Cancel();
+            AbortAll(new ObjectDisposedException(nameof(SecsTransactionManager)));
+            Task[] drains;
+            lock (_monitorGate) drains = _protocolDrains.Select(item => item.Completion).ToArray();
+            await Task.WhenAll(drains).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_monitorGate) _protocolDrains.Clear();
+            _lifetime.Dispose();
+        }
+    }
+
+    private async Task MonitorAsync(
+        PendingTransaction pending,
+        ProtocolDrainRegistration drain,
+        TimeSpan t3,
+        CancellationToken callerCancellation,
+        CancellationToken pendingCancellation,
+        CancellationToken managerCancellation)
+    {
+        var emitTimeoutDiagnostic = false;
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(pendingCancellation, callerCancellation, managerCancellation);
         try
         {
             await Task.Delay(t3, _timeProvider, linked.Token).ConfigureAwait(false);
@@ -144,8 +227,7 @@ public sealed class SecsTransactionManager : IAsyncDisposable
                 AddRecent(pending.Primary.SystemBytes.Value);
                 var error = new SecsTransactionTimeoutException(pending.Primary.SystemBytes, t3);
                 pending.Completion.TrySetException(error);
-                _diagnostics.Emit(new(SecsDiagnosticKind.Timeout, $"T3 expired for 0x{pending.Primary.SystemBytes.Value:X8}."));
-                pending.Lifetime.Dispose();
+                emitTimeoutDiagnostic = true;
             }
         }
         catch (OperationCanceledException) when (callerCancellation.IsCancellationRequested)
@@ -153,10 +235,22 @@ public sealed class SecsTransactionManager : IAsyncDisposable
             if (_pending.TryRemove(pending.Primary.SystemBytes.Value, out _))
             {
                 pending.Completion.TrySetCanceled(callerCancellation);
-                pending.Lifetime.Dispose();
             }
         }
-        catch (OperationCanceledException) when (pending.Lifetime.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (managerCancellation.IsCancellationRequested || pendingCancellation.IsCancellationRequested) { }
+        finally
+        {
+            pending.DisposeAfterMonitor();
+            drain.Complete();
+        }
+        if (emitTimeoutDiagnostic)
+            _diagnostics.Emit(new(SecsDiagnosticKind.Timeout, $"T3 expired for 0x{pending.Primary.SystemBytes.Value:X8}."));
+    }
+
+    private void CompleteProtocolDrain(ProtocolDrainRegistration drain)
+    {
+        lock (_monitorGate) _protocolDrains.Remove(drain);
+        drain.Signal();
     }
 
     private void AddRecent(uint value)
@@ -172,11 +266,68 @@ public sealed class SecsTransactionManager : IAsyncDisposable
     private bool IsRecent(uint value) { lock (_recentGate) return _recent.Contains(value); }
     private void ThrowIfDisposed() { ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this); }
 
-    private sealed class PendingTransaction(SecsMessage primary)
+    private sealed class PendingTransaction(SecsMessage primary, SecsFunction? expectedSecondary)
     {
+        private readonly object _gate = new();
+        private readonly CancellationTokenSource _lifetime = new();
+        private bool _removed;
+        private bool _monitorStarted;
+        private bool _lifetimeDisposed;
+
         public SecsMessage Primary { get; } = primary;
+        public SecsFunction? ExpectedSecondary { get; } = expectedSecondary;
         public TaskCompletionSource<SecsMessage> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public CancellationTokenSource Lifetime { get; } = new();
-        public int MonitorStarted;
+
+        public Task? TryStartMonitor(Func<CancellationToken, Task> monitorFactory)
+        {
+            lock (_gate)
+            {
+                if (_removed) return null;
+                if (_monitorStarted) throw new InvalidOperationException("The transaction timeout was already started.");
+                _monitorStarted = true;
+                return monitorFactory(_lifetime.Token);
+            }
+        }
+
+        public void CancelFromOwner()
+        {
+            lock (_gate)
+            {
+                if (_removed) return;
+                _removed = true;
+                if (_lifetimeDisposed) return;
+                _lifetime.Cancel();
+                if (_monitorStarted) return;
+                _lifetime.Dispose();
+                _lifetimeDisposed = true;
+            }
+        }
+
+        public void DisposeAfterMonitor()
+        {
+            lock (_gate)
+            {
+                _removed = true;
+                if (_lifetimeDisposed) return;
+                _lifetime.Dispose();
+                _lifetimeDisposed = true;
+            }
+        }
+
+    }
+
+    private sealed class ProtocolDrainRegistration(SecsTransactionManager owner)
+    {
+        private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _completed;
+
+        public Task Completion => _completion.Task;
+
+        public void Complete()
+        {
+            if (Interlocked.Exchange(ref _completed, 1) == 0) owner.CompleteProtocolDrain(this);
+        }
+
+        public void Signal() => _completion.TrySetResult();
     }
 }

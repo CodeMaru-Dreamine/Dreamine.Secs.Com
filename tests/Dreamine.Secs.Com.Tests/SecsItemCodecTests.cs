@@ -9,6 +9,26 @@ public sealed class SecsItemCodecTests
 {
     private readonly SecsItemCodec _codec = new();
 
+    private static readonly E5FormatInventoryRow[] E5Table1Inventory =
+    [
+        new("List", 0, E5InventoryStatus.Supported, SecsItemFormat.List, typeof(SecsListItem), static () => new SecsListItem()),
+        new("Binary", 8, E5InventoryStatus.Supported, SecsItemFormat.Binary, typeof(SecsBinaryItem), static () => new SecsBinaryItem(0xaa)),
+        new("Boolean", 9, E5InventoryStatus.Supported, SecsItemFormat.Boolean, typeof(SecsBooleanItem), static () => new SecsBooleanItem(true)),
+        new("ASCII", 16, E5InventoryStatus.Supported, SecsItemFormat.Ascii, typeof(SecsAsciiItem), static () => new SecsAsciiItem("ABC")),
+        new("JIS-8", 17, E5InventoryStatus.Supported, SecsItemFormat.Jis8, typeof(SecsJis8Item), static () => new SecsJis8Item(0x21, 0xa1)),
+        new("2-byte character", 18, E5InventoryStatus.IntentionallyExcluded, null, null, null),
+        new("I8", 24, E5InventoryStatus.Supported, SecsItemFormat.Int64, typeof(SecsInt64Item), static () => new SecsInt64Item(-1)),
+        new("I1", 25, E5InventoryStatus.Supported, SecsItemFormat.Int8, typeof(SecsInt8Item), static () => new SecsInt8Item(-1)),
+        new("I2", 26, E5InventoryStatus.Supported, SecsItemFormat.Int16, typeof(SecsInt16Item), static () => new SecsInt16Item(-1)),
+        new("I4", 28, E5InventoryStatus.Supported, SecsItemFormat.Int32, typeof(SecsInt32Item), static () => new SecsInt32Item(-1)),
+        new("F8", 32, E5InventoryStatus.Supported, SecsItemFormat.Float64, typeof(SecsFloat64Item), static () => new SecsFloat64Item(-1.25)),
+        new("F4", 36, E5InventoryStatus.Supported, SecsItemFormat.Float32, typeof(SecsFloat32Item), static () => new SecsFloat32Item(-1.25f)),
+        new("U8", 40, E5InventoryStatus.Supported, SecsItemFormat.UInt64, typeof(SecsUInt64Item), static () => new SecsUInt64Item(1)),
+        new("U1", 41, E5InventoryStatus.Supported, SecsItemFormat.UInt8, typeof(SecsUInt8Item), static () => new SecsUInt8Item(1)),
+        new("U2", 42, E5InventoryStatus.Supported, SecsItemFormat.UInt16, typeof(SecsUInt16Item), static () => new SecsUInt16Item(1)),
+        new("U4", 44, E5InventoryStatus.Supported, SecsItemFormat.UInt32, typeof(SecsUInt32Item), static () => new SecsUInt32Item(1))
+    ];
+
     public static TheoryData<SecsItem> SupportedItems => new()
     {
         new SecsListItem(new SecsBinaryItem(0, 255), new SecsListItem(new SecsAsciiItem("ABC"))),
@@ -35,6 +55,48 @@ public sealed class SecsItemCodecTests
     {
         var decoded = _codec.Decode(_codec.Encode(item));
         AssertEquivalent(item, decoded);
+    }
+
+    [Fact]
+    public void E5Table1InventoryDeclaresFifteenSupportedFormatsAndCode18IntentionallyExcluded()
+    {
+        Assert.Equal(16, E5Table1Inventory.Length);
+        Assert.Equal(E5Table1Inventory.Length, E5Table1Inventory.Select(static row => row.Code).Distinct().Count());
+
+        var supported = E5Table1Inventory.Where(static row => row.Status == E5InventoryStatus.Supported).ToArray();
+        Assert.Equal(15, supported.Length);
+        var deferred = Assert.Single(E5Table1Inventory, static row => row.Status == E5InventoryStatus.IntentionallyExcluded);
+        Assert.Equal((byte)18, deferred.Code);
+        Assert.Equal("2-byte character", deferred.Name);
+        Assert.Null(deferred.Format);
+        Assert.Null(deferred.ItemType);
+        Assert.Null(deferred.CreateRepresentative);
+
+        var enumValues = Enum.GetValues<SecsItemFormat>();
+        Assert.Equal(enumValues.Length, enumValues.Distinct().Count());
+        Assert.Equal(
+            supported.Select(static row => row.Format!.Value).OrderBy(static format => (byte)format).ToArray(),
+            enumValues.OrderBy(static format => (byte)format).ToArray());
+
+        foreach (var row in supported)
+        {
+            var item = row.CreateRepresentative!();
+            Assert.Equal(row.Code, (byte)row.Format!.Value);
+            Assert.Equal(row.Format.Value, item.Format);
+            Assert.IsType(row.ItemType!, item);
+            AssertEquivalent(item, _codec.Decode(_codec.Encode(item)));
+        }
+
+        var exception = Assert.Throws<SecsDecodeException>(() => _codec.Decode(new byte[] { 0x49, 0x00 }));
+        Assert.Equal(SecsValidationCode.UnsupportedFormat, exception.Code);
+    }
+
+    [Fact]
+    public void Jis8GoldenBytesRoundTripWithoutEncodingConversion()
+    {
+        var golden = new byte[] { 0x45, 0x02, 0x21, 0xa1 };
+        Assert.Equal(golden, _codec.Encode(new SecsJis8Item(0x21, 0xa1)));
+        Assert.Equal(new byte[] { 0x21, 0xa1 }, Assert.IsType<SecsJis8Item>(_codec.Decode(golden)).Values.ToArray());
     }
 
     [Fact]
@@ -252,4 +314,18 @@ public sealed class SecsItemCodecTests
             default: throw new InvalidOperationException(expected.GetType().FullName);
         }
     }
+
+    private enum E5InventoryStatus
+    {
+        Supported,
+        IntentionallyExcluded
+    }
+
+    private sealed record E5FormatInventoryRow(
+        string Name,
+        byte Code,
+        E5InventoryStatus Status,
+        SecsItemFormat? Format,
+        Type? ItemType,
+        Func<SecsItem>? CreateRepresentative);
 }

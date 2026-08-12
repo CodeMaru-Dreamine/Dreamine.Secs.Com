@@ -1,0 +1,13 @@
+{
+  "schema": "dreamine.secs-gem.scenario",
+  "version": 1,
+  "id": "public-host-smoke",
+  "name": "Public Host connect, select, and linktest smoke",
+  "binding": { "kind": "currentConnection", "target": "$current" },
+  "runTimeoutMilliseconds": 20000,
+  "steps": [
+    { "kind": "connect", "id": "connect", "target": "$current", "timeoutMilliseconds": 5000 },
+    { "kind": "select", "id": "select", "target": "$current", "timeoutMilliseconds": 5000 },
+    { "kind": "linktest", "id": "linktest", "target": "$current", "timeoutMilliseconds": 5000 }
+  ]
+}

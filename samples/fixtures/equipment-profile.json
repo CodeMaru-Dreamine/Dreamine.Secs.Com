@@ -1,0 +1,19 @@
+{
+  "schema": "dreamine.secs.connection-profile",
+  "version": 1,
+  "role": "equipment",
+  "mode": "passive",
+  "host": "127.0.0.1",
+  "port": 17117,
+  "sessionId": 37,
+  "autoReconnect": false,
+  "timers": { "t3Seconds": 10, "t5Seconds": 2, "t6Seconds": 5, "t7Seconds": 10, "t8Seconds": 5 },
+  "reconnectPolicy": { "initialDelaySeconds": 1, "maximumDelaySeconds": 5, "backoffMultiplier": 2 },
+  "safetyLimits": {
+    "maximumFrameLength": 1048576,
+    "maximumMessageLength": 1048566,
+    "maximumNestingDepth": 32,
+    "maximumListItemCount": 4096
+  },
+  "logPolicyId": "header-only-v1"
+}

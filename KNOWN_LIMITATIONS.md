@@ -1,8 +1,13 @@
 # Known limitations
 
-- HSMS-SS is single-session. Multi-session/general-session behavior is not implemented.
+- HSMS-SS is single-session. Multi-session/general-session behavior is not implemented, and an E37.1 conformance claim is `BLOCKED_STANDARD` because no local E37.1 normative source was available.
 - SECS-I, SML, two-byte-character items, detailed Stream 9 bodies, and GEM message catalogs are not implemented here.
-- Active automatic reconnect exists, but application-level re-establishment after reconnect remains the caller's policy.
-- The synchronous `MessageReceived` event is exception-isolated but provides no async backpressure.
-- External simulator results remain **Not Run / Waiting for User** unless captured by a separately documented manual run.
-- Unit and self-loopback tests are evidence for this implementation, not certification or current-revision conformance.
+- There is no generic Primary retry. Active reconnect attempts are separated by T5, while Passive resumes listening immediately after close without an additional backoff. Application-level re-establishment and safe retry decisions remain caller policy.
+- `SecsDialogueDefinition` models normal W0 or W1 with the adjacent even Secondary (`Primary + 1`). The low-level matcher also accepts Function 0 as special transaction termination; arbitrary non-normal Primary/Secondary pairs are not modeled.
+- The bounded asynchronous dispatcher is the safe inbound-Primary path. The synchronous legacy `MessageReceived` event receives only unclaimed Primary messages; subscriber exceptions are isolated, but a long-running or non-returning legacy subscriber blocks receive progress. Public shutdown uses a bounded wait, yet such an uncooperative subscriber can still prevent deferred cleanup from completing.
+- Endpoint, mode, Session ID, role, timers, limits, `AutoReconnect`, dispatcher, and wire-observation settings are construction snapshots. They are not live mutable; validate/diff the desired profile and recreate the session. Per-call cancellation affects only the current operation.
+- Wire observation is opt-in, bounded, and limited to one active reader. It reports only complete frames; partial frames are not observations. Queue pressure can drop observations, configured capture limits can truncate `CapturedBytes`, and the retained bytes can contain sensitive application payload.
+- Typed `HsmsHeader` context is available only when a complete ten-byte header was obtained before a decode failure. The context itself does not authorize an automatic Reject or Stream 9 response.
+- The current source still generates both SECS packages as version `1.0.0`. A newly generated `Dreamine.Secs.Com.1.0.0` must not be mixed with an older cached `Dreamine.Secs.Abstractions.1.0.0`; publication requires a matching new version pair and an isolated-cache consumer smoke test.
+- External simulator results remain `NOT_RUN` unless captured by a separately documented manual run with evidence from both endpoints.
+- Unit and self-loopback tests are evidence for this implementation, not certification, external interoperability, real-equipment verification, or current-revision conformance.

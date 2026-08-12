@@ -31,22 +31,25 @@ public sealed class HsmsFrameCodec
     /// <summary>\if KO 최대 frame 길이를 가져옵니다. \endif \if EN Gets the maximum frame length. \endif</summary>
     public int MaximumFrameLength => _options.MaximumFrameLength;
 
+    internal int MaximumMessageLength => _itemCodec.MaximumMessageLength;
+
     /// <summary>\if KO 메시지를 접두사를 포함한 완전한 frame으로 인코딩합니다. \endif \if EN Encodes a message as a complete frame including its prefix. \endif</summary>
     /// <param name="message">\if KO 메시지입니다. \endif \if EN Message. \endif</param><returns>\if KO frame byte입니다. \endif \if EN Frame bytes. \endif</returns>
     public byte[] Encode(HsmsMessage message)
     {
         ArgumentNullException.ThrowIfNull(message);
+        ValidateProtocolHeader(message.Header);
         if (message is HsmsControlMessage outboundControl) ValidateControlHeader(outboundControl.Header);
-        var text = message switch
+        var item = message switch
         {
-            HsmsDataMessage data when data.SecsMessage.Item is not null => _itemCodec.Encode(data.SecsMessage.Item),
-            HsmsDataMessage => Array.Empty<byte>(),
-            HsmsControlMessage => Array.Empty<byte>(),
+            HsmsDataMessage data => data.SecsMessage.Item,
+            HsmsControlMessage => null,
             _ => throw new ArgumentException($"Unsupported HSMS message type {message.GetType().FullName}.", nameof(message))
         };
-        if (message is HsmsControlMessage && text.Length != 0) throw new InvalidOperationException("Control messages cannot contain text.");
-        var frameLength = checked(HeaderLength + text.Length);
-        ValidateFrameLength(frameLength, 0);
+        var textLength = item is null ? 0 : _itemCodec.GetEncodedLength(item);
+        var frameLength = checked(HeaderLength + textLength);
+        ValidateFrameLength(frameLength, 0, message.Header);
+        var text = item is null ? Array.Empty<byte>() : _itemCodec.EncodeValidated(item, textLength);
         var frame = new byte[LengthPrefixSize + frameLength];
         BinaryPrimitives.WriteUInt32BigEndian(frame, (uint)frameLength);
         WriteHeader(frame.AsSpan(LengthPrefixSize, HeaderLength), message.Header);
@@ -60,15 +63,19 @@ public sealed class HsmsFrameCodec
     {
         if (frame.Length < LengthPrefixSize) throw Error(SecsValidationCode.Truncated, "HSMS length prefix is truncated.", 0);
         var declared = BinaryPrimitives.ReadUInt32BigEndian(frame.Span);
-        if (declared > int.MaxValue) throw Error(SecsValidationCode.InvalidLength, "HSMS length exceeds the supported integer range.", 0);
+        HsmsHeader? headerContext = declared >= HeaderLength && frame.Length >= LengthPrefixSize + HeaderLength
+            ? ReadHeader(frame.Span.Slice(LengthPrefixSize, HeaderLength))
+            : null;
+        if (declared > int.MaxValue) throw Error(SecsValidationCode.InvalidLength, "HSMS length exceeds the supported integer range.", 0, headerContext);
         var frameLength = (int)declared;
-        ValidateFrameLength(frameLength, 0);
+        ValidateFrameLength(frameLength, 0, headerContext);
+        ValidateMessageLength(frameLength, 0, headerContext);
         if (frame.Length != LengthPrefixSize + frameLength)
         {
             var code = frame.Length < LengthPrefixSize + frameLength ? SecsValidationCode.Truncated : SecsValidationCode.TrailingData;
-            throw Error(code, $"Declared HSMS length is {frameLength}, actual is {frame.Length - LengthPrefixSize}.", LengthPrefixSize);
+            throw Error(code, $"Declared HSMS length is {frameLength}, actual is {frame.Length - LengthPrefixSize}.", LengthPrefixSize, headerContext);
         }
-        var header = ReadHeader(frame.Span.Slice(LengthPrefixSize, HeaderLength));
+        var header = headerContext!.Value;
         var text = frame.Slice(LengthPrefixSize + HeaderLength);
         return CreateMessage(header, text);
     }
@@ -79,6 +86,12 @@ public sealed class HsmsFrameCodec
     {
         ArgumentNullException.ThrowIfNull(stream);
         var frame = Encode(message);
+        await WriteEncodedAsync(stream, frame, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task WriteEncodedAsync(Stream stream, ReadOnlyMemory<byte> frame, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
         await stream.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -86,6 +99,12 @@ public sealed class HsmsFrameCodec
     /// <summary>\if KO T8을 적용해 Stream에서 한 frame을 읽습니다. 첫 바이트 전 EOF는 null입니다. \endif \if EN Reads one frame with T8 enforcement; EOF before the first byte returns null. \endif</summary>
     /// <param name="stream">\if KO 원본 stream입니다. \endif \if EN Source stream. \endif</param><param name="t8">\if KO 바이트 간 제한 시간입니다. \endif \if EN Inter-character timeout. \endif</param><param name="timeProvider">\if KO 시간 공급자입니다. \endif \if EN Time provider. \endif</param><param name="cancellationToken">\if KO 취소 토큰입니다. \endif \if EN Cancellation token. \endif</param><returns>\if KO 메시지 또는 EOF의 null입니다. \endif \if EN Message or null at EOF. \endif</returns>
     public async Task<HsmsMessage?> ReadAsync(Stream stream, TimeSpan t8, TimeProvider timeProvider, CancellationToken cancellationToken = default)
+    {
+        var frame = await ReadRawFrameAsync(stream, t8, timeProvider, cancellationToken).ConfigureAwait(false);
+        return frame is null ? null : Decode(frame);
+    }
+
+    internal async Task<byte[]?> ReadRawFrameAsync(Stream stream, TimeSpan t8, TimeProvider timeProvider, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream); ArgumentNullException.ThrowIfNull(timeProvider);
         if (t8 <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(t8));
@@ -96,24 +115,37 @@ public sealed class HsmsFrameCodec
         if (declared > int.MaxValue) throw Error(SecsValidationCode.InvalidLength, "HSMS length exceeds the supported integer range.", 0);
         var frameLength = (int)declared;
         ValidateFrameLength(frameLength, 0);
+        ValidateMessageLength(frameLength, 0);
         var frame = new byte[LengthPrefixSize + frameLength];
         prefix.CopyTo(frame, 0);
-        _ = await ReadExactAsync(stream, frame.AsMemory(LengthPrefixSize), true, t8, timeProvider, cancellationToken).ConfigureAwait(false);
-        return Decode(frame);
+        try
+        {
+            _ = await ReadExactAsync(stream, frame.AsMemory(LengthPrefixSize), true, t8, timeProvider, cancellationToken).ConfigureAwait(false);
+        }
+        catch (SecsDecodeException exception) when (exception.HsmsHeader is null && exception.Offset >= HeaderLength)
+        {
+            var header = ReadHeader(frame.AsSpan(LengthPrefixSize, HeaderLength));
+            throw Error(exception.Code, exception.Message, exception.Offset, header);
+        }
+        return frame;
     }
 
     private HsmsMessage CreateMessage(HsmsHeader header, ReadOnlyMemory<byte> text)
     {
-        if (header.PType != 0) throw Error(SecsValidationCode.UnsupportedProtocolType, $"Unsupported PType {header.PType}.", 8);
-        if (!IsSupportedSType(header.SType)) throw Error(SecsValidationCode.UnsupportedProtocolType, $"Unsupported SType {header.SType}.", 9);
+        ValidateProtocolHeader(header);
         if (!header.IsData)
         {
-            if (!text.IsEmpty) throw Error(SecsValidationCode.InvalidLength, "Control messages cannot contain message text.", LengthPrefixSize + HeaderLength);
+            if (!text.IsEmpty) throw Error(SecsValidationCode.InvalidLength, "Control messages cannot contain message text.", LengthPrefixSize + HeaderLength, header);
             ValidateControlHeader(header);
             return new HsmsControlMessage(header);
         }
-        if (header.SessionId > SecsSessionId.MaximumValue) throw Error(SecsValidationCode.OutOfRange, "Data Session ID exceeds 32767.", 4);
-        SecsItem? item = text.IsEmpty ? null : _itemCodec.Decode(text);
+        if (header.SessionId > SecsSessionId.MaximumValue) throw Error(SecsValidationCode.OutOfRange, "Data Session ID exceeds 32767.", 4, header);
+        SecsItem? item;
+        try { item = text.IsEmpty ? null : _itemCodec.Decode(text); }
+        catch (SecsDecodeException exception)
+        {
+            throw Error(exception.Code, exception.Message, exception.Offset, header);
+        }
         SecsMessage secs;
         try
         {
@@ -121,33 +153,46 @@ public sealed class HsmsFrameCodec
         }
         catch (ArgumentException exception)
         {
-            throw Error(SecsValidationCode.InvalidMessage, exception.Message, 4);
+            throw Error(SecsValidationCode.InvalidMessage, exception.Message, 4, header);
         }
         return new HsmsDataMessage(secs);
     }
 
-    private void ValidateFrameLength(int frameLength, int offset)
+    private void ValidateFrameLength(int frameLength, int offset, HsmsHeader? header = null)
     {
-        if (frameLength < HeaderLength) throw Error(SecsValidationCode.InvalidLength, $"HSMS length must be at least {HeaderLength}.", offset);
-        if (frameLength > _options.MaximumFrameLength) throw Error(SecsValidationCode.SizeLimitExceeded, $"HSMS length exceeds {_options.MaximumFrameLength}.", offset);
+        if (frameLength < HeaderLength) throw Error(SecsValidationCode.InvalidLength, $"HSMS length must be at least {HeaderLength}.", offset, header);
+        if (frameLength > _options.MaximumFrameLength) throw Error(SecsValidationCode.SizeLimitExceeded, $"HSMS length exceeds {_options.MaximumFrameLength}.", offset, header);
+    }
+
+    private void ValidateMessageLength(int frameLength, int offset, HsmsHeader? header = null)
+    {
+        var messageLength = frameLength - HeaderLength;
+        if (messageLength > _itemCodec.MaximumMessageLength)
+            throw Error(SecsValidationCode.SizeLimitExceeded, $"HSMS message text exceeds {_itemCodec.MaximumMessageLength} bytes.", offset, header);
     }
 
     private static bool IsSupportedSType(byte value) => value is 0 or 1 or 2 or 3 or 4 or 5 or 6 or 7 or 9;
+
+    private static void ValidateProtocolHeader(HsmsHeader header)
+    {
+        if (header.PType != 0) throw Error(SecsValidationCode.UnsupportedProtocolType, $"Unsupported PType {header.PType}.", 8, header);
+        if (!IsSupportedSType(header.SType)) throw Error(SecsValidationCode.UnsupportedProtocolType, $"Unsupported SType {header.SType}.", 9, header);
+    }
 
     private static void ValidateControlHeader(HsmsHeader header)
     {
         var type = (HsmsSType)header.SType;
         if (type != HsmsSType.RejectRequest && header.HeaderByte2 != 0)
-            throw Error(SecsValidationCode.InvalidMessage, $"{type} requires Header Byte 2 to be zero.", 6);
+            throw Error(SecsValidationCode.InvalidMessage, $"{type} requires Header Byte 2 to be zero.", 6, header);
         if (type is HsmsSType.SelectRequest or HsmsSType.DeselectRequest or HsmsSType.LinktestRequest or HsmsSType.LinktestResponse or HsmsSType.SeparateRequest)
         {
             if (header.HeaderByte3 != 0)
-                throw Error(SecsValidationCode.InvalidMessage, $"{type} requires Header Byte 3 to be zero.", 7);
+                throw Error(SecsValidationCode.InvalidMessage, $"{type} requires Header Byte 3 to be zero.", 7, header);
         }
         if ((type is HsmsSType.LinktestRequest or HsmsSType.LinktestResponse) && header.SessionId != ushort.MaxValue)
-            throw Error(SecsValidationCode.InvalidMessage, $"{type} requires Session ID 0xFFFF.", 4);
+            throw Error(SecsValidationCode.InvalidMessage, $"{type} requires Session ID 0xFFFF.", 4, header);
         if (type == HsmsSType.RejectRequest && header.HeaderByte3 == 0)
-            throw Error(SecsValidationCode.InvalidMessage, "RejectRequest requires a non-zero reason code.", 7);
+            throw Error(SecsValidationCode.InvalidMessage, "RejectRequest requires a non-zero reason code.", 7, header);
     }
 
     private static void WriteHeader(Span<byte> destination, HsmsHeader header)
@@ -200,5 +245,6 @@ public sealed class HsmsFrameCodec
         throw new HsmsTimerExpiredException("T8", timeout);
     }
 
-    private static SecsDecodeException Error(SecsValidationCode code, string message, int? offset = null) => new(code, message, offset);
+    private static SecsDecodeException Error(SecsValidationCode code, string message, int? offset = null, HsmsHeader? header = null) =>
+        new(code, message, offset, header);
 }

@@ -204,6 +204,265 @@ public sealed class TransactionAndTimerTests
         Assert.Equal(0, manager.OutstandingCount);
     }
 
+    [Fact]
+    public async Task BlockingT3DiagnosticRunsAfterOwnedMonitorDrain()
+    {
+        var time = new ManualTimeProvider();
+        using var sink = new BlockingSink();
+        var manager = new SecsTransactionManager(time, diagnostics: sink);
+        var pending = manager.RegisterPrimaryAsync(Primary(60), TimeSpan.FromSeconds(1));
+
+        var expiration = Task.Run(() => time.Advance(TimeSpan.FromSeconds(1)));
+        await sink.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var disposal = manager.DisposeAsync().AsTask();
+        await disposal.WaitAsync(TimeSpan.FromSeconds(5));
+
+        sink.Release();
+        await expiration.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.ThrowsAsync<SecsTransactionTimeoutException>(() => pending);
+        Assert.Equal(0, manager.OutstandingCount);
+        Assert.Equal(0, time.ScheduledTimerCount);
+    }
+
+    [Fact]
+    public async Task BlockingT6DiagnosticRunsAfterOwnedMonitorDrain()
+    {
+        var time = new ManualTimeProvider();
+        using var sink = new BlockingSink();
+        var manager = new HsmsControlTransactionManager(time, sink);
+        var pending = manager.RegisterAsync(Control(HsmsSType.LinktestRequest, 61), TimeSpan.FromSeconds(1));
+
+        var expiration = Task.Run(() => time.Advance(TimeSpan.FromSeconds(1)));
+        await sink.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var disposal = manager.DisposeAsync().AsTask();
+        await disposal.WaitAsync(TimeSpan.FromSeconds(5));
+
+        sink.Release();
+        await expiration.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.ThrowsAsync<HsmsTimerExpiredException>(() => pending);
+        Assert.Equal(0, manager.OutstandingCount);
+        Assert.Equal(0, time.ScheduledTimerCount);
+    }
+
+    [Fact]
+    public async Task MassT3TimeoutsHaveAtMostOneBlockedExternalDiagnosticCallback()
+    {
+        const int count = 256;
+        var time = new ManualTimeProvider();
+        using var sink = new CountingBlockingSink();
+        var manager = new SecsTransactionManager(time, diagnostics: sink);
+        var pending = Enumerable.Range(0, count)
+            .Select(index => manager.RegisterPrimaryAsync(Primary((uint)(1_000 + index)), TimeSpan.FromSeconds(1)))
+            .ToArray();
+
+        var firstExpiration = Task.Factory.StartNew(
+            () => time.Advance(TimeSpan.FromSeconds(1)),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        await sink.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var remainingExpirations = Task.Factory.StartNew(
+            () => time.Advance(TimeSpan.FromSeconds(1)),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        await WaitUntilAsync(() => manager.OutstandingCount == 0, TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, sink.MaximumConcurrentCallbacks);
+        await manager.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+
+        sink.Release();
+        await Task.WhenAll(firstExpiration, remainingExpirations).WaitAsync(TimeSpan.FromSeconds(5));
+        foreach (var transaction in pending)
+            await Assert.ThrowsAsync<SecsTransactionTimeoutException>(() => transaction);
+    }
+
+    [Fact]
+    public async Task T3TimeoutDiagnosticCanSynchronouslyDisposeItsManager()
+    {
+        var time = new ManualTimeProvider();
+        var sink = new CallbackSink();
+        var manager = new SecsTransactionManager(time, diagnostics: sink);
+        sink.Callback = () => manager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        var pending = manager.RegisterPrimaryAsync(Primary(62), TimeSpan.FromSeconds(1));
+
+        await Task.Run(() => time.Advance(TimeSpan.FromSeconds(1))).WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.ThrowsAsync<SecsTransactionTimeoutException>(() => pending);
+        await manager.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(0, manager.OutstandingCount);
+    }
+
+    [Fact]
+    public async Task T6TimeoutDiagnosticCanSynchronouslyDisposeItsManager()
+    {
+        var time = new ManualTimeProvider();
+        var sink = new CallbackSink();
+        var manager = new HsmsControlTransactionManager(time, sink);
+        sink.Callback = () => manager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        var pending = manager.RegisterAsync(Control(HsmsSType.LinktestRequest, 63), TimeSpan.FromSeconds(1));
+
+        await Task.Run(() => time.Advance(TimeSpan.FromSeconds(1))).WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.ThrowsAsync<HsmsTimerExpiredException>(() => pending);
+        await manager.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(0, manager.OutstandingCount);
+    }
+
+    [Fact]
+    public async Task T3CallerCancellationAndTimeoutRaceHasOneTerminalOutcome()
+    {
+        for (var index = 0; index < 25; index++)
+        {
+            var time = new ManualTimeProvider();
+            var manager = new SecsTransactionManager(time);
+            using var cancellation = new CancellationTokenSource();
+            var pending = manager.RegisterPrimaryAsync(Primary((uint)(100 + index)), TimeSpan.FromSeconds(1), cancellation.Token);
+
+            await Task.WhenAll(
+                Task.Run(cancellation.Cancel),
+                Task.Run(() => time.Advance(TimeSpan.FromSeconds(1))));
+
+            var outcome = await Record.ExceptionAsync(async () => await pending);
+            Assert.True(outcome is OperationCanceledException or SecsTransactionTimeoutException, outcome?.ToString());
+
+            await manager.DisposeAsync();
+            Assert.Equal(0, manager.OutstandingCount);
+            Assert.Equal(0, time.ScheduledTimerCount);
+        }
+    }
+
+    [Fact]
+    public async Task T6CallerCancellationAndTimeoutRaceHasOneTerminalOutcome()
+    {
+        for (var index = 0; index < 25; index++)
+        {
+            var time = new ManualTimeProvider();
+            var manager = new HsmsControlTransactionManager(time);
+            using var cancellation = new CancellationTokenSource();
+            var pending = manager.RegisterAsync(Control(HsmsSType.LinktestRequest, (uint)(200 + index)), TimeSpan.FromSeconds(1), cancellation.Token);
+
+            await Task.WhenAll(
+                Task.Run(cancellation.Cancel),
+                Task.Run(() => time.Advance(TimeSpan.FromSeconds(1))));
+
+            var outcome = await Record.ExceptionAsync(async () => await pending);
+            Assert.True(outcome is OperationCanceledException or HsmsTimerExpiredException, outcome?.ToString());
+
+            await manager.DisposeAsync();
+            Assert.Equal(0, manager.OutstandingCount);
+            Assert.Equal(0, time.ScheduledTimerCount);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentSecsDisposeCallsShareTheSameCompletion()
+    {
+        var time = new ManualTimeProvider();
+        var manager = new SecsTransactionManager(time);
+        var pending = manager.RegisterPrimaryAsync(Primary(300), TimeSpan.FromMinutes(1));
+
+        var disposals = Enumerable.Range(0, 16)
+            .Select(_ => Task.Run(async () => await manager.DisposeAsync()))
+            .ToArray();
+
+        await Task.WhenAll(disposals).WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => pending);
+        Assert.All(disposals, disposal => Assert.Equal(TaskStatus.RanToCompletion, disposal.Status));
+        Assert.Equal(0, manager.OutstandingCount);
+        Assert.Equal(0, time.ScheduledTimerCount);
+    }
+
+    [Fact]
+    public async Task ConcurrentControlDisposeCallsShareTheSameCompletion()
+    {
+        var time = new ManualTimeProvider();
+        var manager = new HsmsControlTransactionManager(time);
+        var pending = manager.RegisterAsync(Control(HsmsSType.SelectRequest, 301), TimeSpan.FromMinutes(1));
+
+        var disposals = Enumerable.Range(0, 16)
+            .Select(_ => Task.Run(async () => await manager.DisposeAsync()))
+            .ToArray();
+
+        await Task.WhenAll(disposals).WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => pending);
+        Assert.All(disposals, disposal => Assert.Equal(TaskStatus.RanToCompletion, disposal.Status));
+        Assert.Equal(0, manager.OutstandingCount);
+        Assert.Equal(0, time.ScheduledTimerCount);
+    }
+
+    [Fact]
+    public async Task T3RegistrationAndDisposeRaceCannotLeaveAnOutstandingTransaction()
+    {
+        for (var index = 0; index < 50; index++)
+        {
+            var time = new ManualTimeProvider();
+            var manager = new SecsTransactionManager(time);
+            using var start = new ManualResetEventSlim();
+            Task<SecsMessage>? pending = null;
+            Exception? registrationError = null;
+
+            var registration = Task.Run(() =>
+            {
+                start.Wait();
+                try { pending = manager.RegisterPrimaryAsync(Primary((uint)(400 + index)), TimeSpan.FromMinutes(1)); }
+                catch (Exception exception) { registrationError = exception; }
+            });
+            var disposal = Task.Run(async () =>
+            {
+                start.Wait();
+                await manager.DisposeAsync();
+            });
+
+            start.Set();
+            await Task.WhenAll(registration, disposal).WaitAsync(TimeSpan.FromSeconds(5));
+
+            if (pending is not null) await Assert.ThrowsAsync<ObjectDisposedException>(() => pending);
+            else Assert.IsType<ObjectDisposedException>(registrationError);
+            Assert.Equal(0, manager.OutstandingCount);
+            Assert.Equal(0, time.ScheduledTimerCount);
+        }
+    }
+
+    [Fact]
+    public async Task T6RegistrationAndDisposeRaceCannotLeaveAnOutstandingTransaction()
+    {
+        for (var index = 0; index < 50; index++)
+        {
+            var time = new ManualTimeProvider();
+            var manager = new HsmsControlTransactionManager(time);
+            using var start = new ManualResetEventSlim();
+            Task<HsmsControlMessage>? pending = null;
+            Exception? registrationError = null;
+
+            var registration = Task.Run(() =>
+            {
+                start.Wait();
+                try { pending = manager.RegisterAsync(Control(HsmsSType.LinktestRequest, (uint)(500 + index)), TimeSpan.FromMinutes(1)); }
+                catch (Exception exception) { registrationError = exception; }
+            });
+            var disposal = Task.Run(async () =>
+            {
+                start.Wait();
+                await manager.DisposeAsync();
+            });
+
+            start.Set();
+            await Task.WhenAll(registration, disposal).WaitAsync(TimeSpan.FromSeconds(5));
+
+            if (pending is not null) await Assert.ThrowsAsync<ObjectDisposedException>(() => pending);
+            else Assert.IsType<ObjectDisposedException>(registrationError);
+            Assert.Equal(0, manager.OutstandingCount);
+            Assert.Equal(0, time.ScheduledTimerCount);
+        }
+    }
+
     [Theory]
     [InlineData(HsmsTimerKind.T5, 10)]
     [InlineData(HsmsTimerKind.T7, 10)]
@@ -261,5 +520,81 @@ public sealed class TransactionAndTimerTests
     private sealed class ThrowingSink : Dreamine.Secs.Abstractions.Diagnostics.ISecsDiagnosticSink
     {
         public void Emit(Dreamine.Secs.Abstractions.Diagnostics.SecsDiagnosticEvent diagnosticEvent) => throw new InvalidOperationException("sink failure");
+    }
+
+    private sealed class BlockingSink : Dreamine.Secs.Abstractions.Diagnostics.ISecsDiagnosticSink, IDisposable
+    {
+        private readonly ManualResetEventSlim _release = new();
+
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Emit(Dreamine.Secs.Abstractions.Diagnostics.SecsDiagnosticEvent diagnosticEvent)
+        {
+            if (diagnosticEvent.Kind != Dreamine.Secs.Abstractions.Diagnostics.SecsDiagnosticKind.Timeout) return;
+            Entered.TrySetResult();
+            if (!_release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("The test did not release the diagnostic sink.");
+        }
+
+        public void Release() => _release.Set();
+        public void Dispose() => _release.Dispose();
+    }
+
+    private sealed class CallbackSink : Dreamine.Secs.Abstractions.Diagnostics.ISecsDiagnosticSink
+    {
+        public Action? Callback { get; set; }
+
+        public void Emit(Dreamine.Secs.Abstractions.Diagnostics.SecsDiagnosticEvent diagnosticEvent)
+        {
+            if (diagnosticEvent.Kind == Dreamine.Secs.Abstractions.Diagnostics.SecsDiagnosticKind.Timeout)
+                Callback?.Invoke();
+        }
+    }
+
+    private sealed class CountingBlockingSink : Dreamine.Secs.Abstractions.Diagnostics.ISecsDiagnosticSink, IDisposable
+    {
+        private readonly ManualResetEventSlim _release = new();
+        private int _active;
+        private int _maximum;
+
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int MaximumConcurrentCallbacks => Volatile.Read(ref _maximum);
+
+        public void Emit(Dreamine.Secs.Abstractions.Diagnostics.SecsDiagnosticEvent diagnosticEvent)
+        {
+            if (diagnosticEvent.Kind != Dreamine.Secs.Abstractions.Diagnostics.SecsDiagnosticKind.Timeout) return;
+            var active = Interlocked.Increment(ref _active);
+            UpdateMaximum(active);
+            Entered.TrySetResult();
+            try
+            {
+                if (!_release.Wait(TimeSpan.FromSeconds(10)))
+                    throw new TimeoutException("The test did not release the diagnostic sink.");
+            }
+            finally { Interlocked.Decrement(ref _active); }
+        }
+
+        public void Release() => _release.Set();
+        public void Dispose() => _release.Dispose();
+
+        private void UpdateMaximum(int candidate)
+        {
+            var current = Volatile.Read(ref _maximum);
+            while (candidate > current)
+            {
+                var observed = Interlocked.CompareExchange(ref _maximum, candidate, current);
+                if (observed == current) return;
+                current = observed;
+            }
+        }
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        using var cancellation = new CancellationTokenSource(timeout);
+        while (!condition())
+        {
+            cancellation.Token.ThrowIfCancellationRequested();
+            await Task.Yield();
+        }
     }
 }

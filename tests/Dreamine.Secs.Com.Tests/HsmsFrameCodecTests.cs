@@ -114,6 +114,7 @@ public sealed class HsmsFrameCodecTests
         BinaryPrimitives.WriteInt32BigEndian(frame, length);
         var exception = Assert.Throws<SecsDecodeException>(() => _codec.Decode(frame));
         Assert.Equal(SecsValidationCode.InvalidLength, exception.Code);
+        Assert.Null(exception.HsmsHeader);
     }
 
     [Fact]
@@ -121,15 +122,21 @@ public sealed class HsmsFrameCodecTests
     {
         var frame = new byte[13];
         BinaryPrimitives.WriteInt32BigEndian(frame, 10);
-        Assert.Equal(SecsValidationCode.Truncated, Assert.Throws<SecsDecodeException>(() => _codec.Decode(frame)).Code);
-        Assert.Equal(SecsValidationCode.Truncated, Assert.Throws<SecsDecodeException>(() => _codec.Decode(new byte[] { 0, 0, 0 })).Code);
+        var partialHeader = Assert.Throws<SecsDecodeException>(() => _codec.Decode(frame));
+        Assert.Equal(SecsValidationCode.Truncated, partialHeader.Code);
+        Assert.Null(partialHeader.HsmsHeader);
+        var partialPrefix = Assert.Throws<SecsDecodeException>(() => _codec.Decode(new byte[] { 0, 0, 0 }));
+        Assert.Equal(SecsValidationCode.Truncated, partialPrefix.Code);
+        Assert.Null(partialPrefix.HsmsHeader);
     }
 
     [Fact]
     public void TrailingFrameBytesAreRejected()
     {
         var frame = _codec.Encode(CreateData()).Concat(new byte[] { 0 }).ToArray();
-        Assert.Equal(SecsValidationCode.TrailingData, Assert.Throws<SecsDecodeException>(() => _codec.Decode(frame)).Code);
+        var exception = Assert.Throws<SecsDecodeException>(() => _codec.Decode(frame));
+        Assert.Equal(SecsValidationCode.TrailingData, exception.Code);
+        Assert.Equal(HsmsHeader.CreateData(CreateData().SecsMessage), exception.HsmsHeader);
     }
 
     [Theory]
@@ -139,7 +146,53 @@ public sealed class HsmsFrameCodecTests
     {
         var frame = _codec.Encode(new HsmsControlMessage(HsmsHeader.CreateControl(HsmsSType.SelectRequest, new SecsSystemBytes(1))));
         frame[HsmsFrameCodec.LengthPrefixSize + headerOffset] = value;
-        Assert.Equal(expected, Assert.Throws<SecsDecodeException>(() => _codec.Decode(frame)).Code);
+        var exception = Assert.Throws<SecsDecodeException>(() => _codec.Decode(frame));
+        Assert.Equal(expected, exception.Code);
+        var header = Assert.IsType<HsmsHeader>(exception.HsmsHeader);
+        Assert.Equal((ushort)ushort.MaxValue, header.SessionId);
+        Assert.Equal(new SecsSystemBytes(1), header.SystemBytes);
+        Assert.Equal(frame[8], header.PType);
+        Assert.Equal(frame[9], header.SType);
+    }
+
+    [Theory]
+    [InlineData(1, (byte)HsmsSType.SelectRequest)]
+    [InlineData(0, 8)]
+    public void UnsupportedOutboundPTypeAndSTypeAreRejected(byte pType, byte sType)
+    {
+        var header = new HsmsHeader(
+            ushort.MaxValue,
+            0,
+            0,
+            pType,
+            sType,
+            new SecsSystemBytes(1));
+
+        var exception = Assert.Throws<SecsDecodeException>(() => _codec.Encode(new HsmsControlMessage(header)));
+        Assert.Equal(SecsValidationCode.UnsupportedProtocolType, exception.Code);
+        Assert.Equal(header, exception.HsmsHeader);
+    }
+
+    [Theory]
+    [InlineData(1, (byte)HsmsSType.SelectRequest)]
+    [InlineData(0, 8)]
+    public async Task UnsupportedOutboundProtocolHeaderIsRejectedBeforeAnyBytesAreWritten(byte pType, byte sType)
+    {
+        var header = new HsmsHeader(
+            ushort.MaxValue,
+            0,
+            0,
+            pType,
+            sType,
+            new SecsSystemBytes(0x10203040));
+        await using var destination = new MemoryStream();
+
+        var exception = await Assert.ThrowsAsync<SecsDecodeException>(
+            () => _codec.WriteAsync(destination, new HsmsControlMessage(header)));
+
+        Assert.Equal(SecsValidationCode.UnsupportedProtocolType, exception.Code);
+        Assert.Equal(header, exception.HsmsHeader);
+        Assert.Equal(0, destination.Length);
     }
 
     [Fact]
@@ -160,7 +213,11 @@ public sealed class HsmsFrameCodecTests
     {
         var frame = _codec.Encode(new HsmsControlMessage(HsmsHeader.CreateControl(type, new SecsSystemBytes(1))));
         frame[HsmsFrameCodec.LengthPrefixSize + headerByteIndex] = value;
-        Assert.Equal(SecsValidationCode.InvalidMessage, Assert.Throws<SecsDecodeException>(() => _codec.Decode(frame)).Code);
+        var exception = Assert.Throws<SecsDecodeException>(() => _codec.Decode(frame));
+        Assert.Equal(SecsValidationCode.InvalidMessage, exception.Code);
+        var header = Assert.IsType<HsmsHeader>(exception.HsmsHeader);
+        Assert.Equal(frame[HsmsFrameCodec.LengthPrefixSize + 2], header.HeaderByte2);
+        Assert.Equal(frame[HsmsFrameCodec.LengthPrefixSize + 3], header.HeaderByte3);
     }
 
     [Fact]
@@ -190,6 +247,21 @@ public sealed class HsmsFrameCodecTests
         stream.Position = 0;
         var decoded = await _codec.ReadAsync(new OneByteReadStream(stream), TimeSpan.FromSeconds(5), TimeProvider.System);
         Assert.IsType<HsmsDataMessage>(decoded);
+    }
+
+    [Fact]
+    public async Task StreamTruncationAfterCompleteHeaderPreservesTypedContext()
+    {
+        var message = CreateData();
+        var completeFrame = _codec.Encode(message);
+        var truncatedFrame = completeFrame[..(HsmsFrameCodec.LengthPrefixSize + HsmsFrameCodec.HeaderLength + 1)];
+        await using var stream = new MemoryStream(truncatedFrame);
+
+        var exception = await Assert.ThrowsAsync<SecsDecodeException>(
+            () => _codec.ReadAsync(stream, TimeSpan.FromSeconds(5), TimeProvider.System));
+
+        Assert.Equal(SecsValidationCode.Truncated, exception.Code);
+        Assert.Equal(HsmsHeader.CreateData(message.SecsMessage), exception.HsmsHeader);
     }
 
     private static HsmsDataMessage CreateData() => new(new SecsMessage(

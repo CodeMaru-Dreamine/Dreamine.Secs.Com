@@ -42,6 +42,8 @@ public sealed class HsmsStreamDecoder
                     throw new SecsDecodeException(SecsValidationCode.InvalidLength, $"Invalid HSMS length {declared}.", 0);
                 if (declared > _codec.MaximumFrameLength)
                     throw new SecsDecodeException(SecsValidationCode.SizeLimitExceeded, $"HSMS length exceeds {_codec.MaximumFrameLength}.", 0);
+                if (declared - HsmsFrameCodec.HeaderLength > _codec.MaximumMessageLength)
+                    throw new SecsDecodeException(SecsValidationCode.SizeLimitExceeded, $"HSMS message text exceeds {_codec.MaximumMessageLength} bytes.", 0);
                 var total = HsmsFrameCodec.LengthPrefixSize + (int)declared;
                 EnsureCapacity(total);
                 var copied = Math.Min(total - _count, data.Length);

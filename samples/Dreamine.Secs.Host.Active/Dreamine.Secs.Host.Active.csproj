@@ -4,8 +4,12 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Dreamine.Secs.Com.csproj" />
+    <ProjectReference Include="..\..\..\..\998. DEMO\000. Sample\060. Consoles\Dreamine.SecsGem.Interop.Runtime\Dreamine.SecsGem.Interop.Runtime.csproj" />
+    <Compile Include="..\RuntimeSampleFeatures.cs" Link="RuntimeSampleFeatures.cs" />
   </ItemGroup>
 </Project>
