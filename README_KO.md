@@ -26,7 +26,7 @@ Active Host와 Passive Equipment 샘플은 위 provider-neutral API와 재사용
 
 샘플은 `--profile`, `--template`과 `--template-name`, `--scenario`, `--log-directory`도 받습니다. 저장소의 version-1 fixture는 0이 아닌 Session ID, 샘플 전용 W0 Template, 제한 시간 안의 Connect/Select/Linktest 실행, 지속형 Header-Only JSONL 로그를 보여 줍니다. [QUICKSTART_KO.md](QUICKSTART_KO.md)와 [fixture 안내](samples/fixtures/README.md)를 참고하십시오.
 
-Canonical full workspace 안에서는 sample project가 `Dreamine.SecsGem.Interop.Runtime` source를 의도적으로 `ProjectReference`합니다. Package 소비자는 대신 `Dreamine.SecsGem.Interop.Runtime` package와 서로 일치하는 Communication, SECS, GEM package 세트를 참조합니다. 같은 version을 가진 과거 cache binary와 새 `1.0.0` candidate를 혼합하지 마십시오. Candidate 검증은 isolated local feed와 package cache를 사용하며 package 게시를 의미하지 않습니다.
+Canonical full workspace 안에서는 sample project가 `Dreamine.SecsGem.Interop.Runtime` source를 의도적으로 `ProjectReference`합니다. 게시된 `Dreamine.Secs.Com` package에는 HSMS runtime이 포함되며 해당 Demo/Workbench project는 포함되지 않습니다. 과거 로컬 `1.0.0` 산출물에서 게시 package 세트로 전환할 때는 깨끗한 package cache를 사용하십시오.
 
 ## Transport 결정
 

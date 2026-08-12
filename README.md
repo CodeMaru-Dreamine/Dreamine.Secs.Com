@@ -26,7 +26,7 @@ The Active Host and Passive Equipment samples use the provider-neutral APIs abov
 
 The samples also accept `--profile`, `--template` with `--template-name`, `--scenario`, and `--log-directory`. The checked-in version-1 fixtures demonstrate a non-zero Session ID, a sample-only W0 template, bounded Connect/Select/Linktest execution, and persistent Header-Only JSONL logging. See [QUICKSTART.md](QUICKSTART.md) and [the fixture guide](samples/fixtures/README.md).
 
-Inside the canonical full workspace, the sample projects deliberately use a source `ProjectReference` to `Dreamine.SecsGem.Interop.Runtime`. A package consumer instead references the `Dreamine.SecsGem.Interop.Runtime` package together with its matching Communication, SECS, and GEM package set. Do not mix a newly built `1.0.0` candidate with older cached binaries that have the same version. Candidate validation uses an isolated local feed and package cache; no package publication is implied.
+Inside the canonical full workspace, the sample projects deliberately use a source `ProjectReference` to `Dreamine.SecsGem.Interop.Runtime`. The published `Dreamine.Secs.Com` package contains the HSMS runtime, not that demo/workbench project. Use a clean package cache when switching from older local `1.0.0` artifacts to the published package set.
 
 ## Transport decision
 
