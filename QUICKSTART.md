@@ -1,5 +1,17 @@
 # Quick start
 
+## Package-first loopback
+
+From a standalone `Dreamine.Secs.Com` clone, run the sample that references only the published package:
+
+```powershell
+dotnet run --project samples/Dreamine.Secs.Com.PackageQuickStart
+```
+
+It performs a bounded in-process Passive Equipment / Active Host Select, S1F1/F2, Linktest, and disconnect scenario. No full-workspace demo project is required.
+
+## Full-workspace integration samples
+
 Run the passive equipment first, then the active host in another terminal:
 
 ```powershell
@@ -9,7 +21,7 @@ dotnet run --project samples/Dreamine.Secs.Host.Active
 
 The pair demonstrates TCP/Select, S1F13/S1F14, S1F1/S1F2, a sample-only W0 message, Linktest, normal separation, and one reconnect. Defaults are `127.0.0.1:7000`, Session ID `7`, two bounded connection cycles, a 250 ms delay between cycles, and a 120-second whole-run timeout. Host and port may be passed as the first two arguments. Use `--once` for one cycle and `--help` for every option.
 
-These project commands are source builds for the canonical full workspace. The two sample projects deliberately `ProjectReference` the sibling `Dreamine.SecsGem.Interop.Runtime` source project. An application consuming packages references `Dreamine.SecsGem.Interop.Runtime` and the matching Communication, SECS, and GEM package set instead; do not mix newly built `1.0.0` candidates with older cached binaries carrying the same version.
+These two project commands are source builds for the canonical full workspace. They deliberately `ProjectReference` the sibling, source-only `Dreamine.SecsGem.Interop.Runtime` workbench project. That project is not a published package and is not required by applications consuming `Dreamine.Secs.Com`. Use the package-first loopback above for a standalone clone.
 
 ## Versioned profile, template, scenario, and persistent log
 

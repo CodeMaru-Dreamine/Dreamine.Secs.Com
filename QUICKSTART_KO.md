@@ -1,5 +1,17 @@
 # 빠른 시작
 
+## Package-first Loopback
+
+독립 `Dreamine.Secs.Com` Clone에서 공개 패키지만 참조하는 샘플을 실행합니다.
+
+```powershell
+dotnet run --project samples/Dreamine.Secs.Com.PackageQuickStart
+```
+
+하나의 제한된 Process에서 Passive Equipment / Active Host Select, S1F1/F2, Linktest, Disconnect를 수행합니다. Full Workspace Demo Project는 필요하지 않습니다.
+
+## Full Workspace 통합 샘플
+
 먼저 Passive 장비를 실행하고 다른 터미널에서 Active 호스트를 실행합니다.
 
 ```powershell
@@ -9,7 +21,7 @@ dotnet run --project samples/Dreamine.Secs.Host.Active
 
 TCP/Select, S1F13/S1F14, S1F1/S1F2, 샘플 전용 W0 메시지, Linktest, 정상 Separate 및 1회 재접속을 확인합니다. 기본값은 `127.0.0.1:7000`, Session ID `7`, 제한된 연결 2회, 연결 사이 250 ms 지연, 전체 실행 timeout 120초입니다. 첫 두 인수로 Host와 Port를 바꿀 수 있습니다. 연결을 1회만 실행하려면 `--once`, 전체 옵션은 `--help`를 사용하십시오.
 
-이 project 명령은 canonical full workspace용 source build입니다. 두 sample project는 sibling `Dreamine.SecsGem.Interop.Runtime` source project를 의도적으로 `ProjectReference`합니다. Package 소비 application은 대신 `Dreamine.SecsGem.Interop.Runtime`과 서로 일치하는 Communication, SECS, GEM package 세트를 참조합니다. 같은 version을 가진 과거 cache binary와 새 `1.0.0` candidate를 혼합하지 마십시오.
+이 두 Project 명령은 Canonical Full Workspace용 Source Build입니다. 형제 Source-only `Dreamine.SecsGem.Interop.Runtime` Workbench Project를 의도적으로 `ProjectReference`합니다. 이 Project는 공개 패키지가 아니며 `Dreamine.Secs.Com` 소비 Application에 필요하지 않습니다. 독립 Clone에서는 위 Package-first Loopback을 사용하십시오.
 
 ## Versioned Profile, Template, Scenario 및 지속형 로그
 

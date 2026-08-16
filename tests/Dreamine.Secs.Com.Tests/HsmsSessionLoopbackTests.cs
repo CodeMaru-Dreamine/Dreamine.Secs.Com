@@ -11,6 +11,7 @@ using Xunit;
 
 namespace Dreamine.Secs.Com.Tests;
 
+[Collection(NetworkIsolationCollection.Name)]
 public sealed class HsmsSessionLoopbackTests
 {
     [Fact]
@@ -644,6 +645,7 @@ public sealed class HsmsSessionLoopbackTests
 
         var disposal = session.DisposeAsync().AsTask();
         await disposal;
+        await sink.ReentrantDisposeObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.NotNull(sink.ReentrantDisposal);
         Assert.Same(disposal, sink.ReentrantDisposal);
@@ -827,11 +829,13 @@ public sealed class HsmsSessionLoopbackTests
         private int _entered;
         public HsmsSession? Session { get; set; }
         public Task? ReentrantDisposal { get; private set; }
+        public TaskCompletionSource ReentrantDisposeObserved { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public void Emit(SecsDiagnosticEvent diagnosticEvent)
         {
             if (diagnosticEvent.Kind != SecsDiagnosticKind.ConnectionClosed || Interlocked.Exchange(ref _entered, 1) != 0) return;
             ReentrantDisposal = Session!.DisposeAsync().AsTask();
+            ReentrantDisposeObserved.TrySetResult();
         }
     }
 

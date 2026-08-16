@@ -1,8 +1,19 @@
 # Dreamine.Secs.Com
 
+[![CI](https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com/actions/workflows/ci.yml/badge.svg)](https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com/actions/workflows/ci.yml)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=CodeMaru-Dreamine_Dreamine.Secs.Com&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=CodeMaru-Dreamine_Dreamine.Secs.Com) [![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=CodeMaru-Dreamine_Dreamine.Secs.Com&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=CodeMaru-Dreamine_Dreamine.Secs.Com) [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=CodeMaru-Dreamine_Dreamine.Secs.Com&metric=coverage)](https://sonarcloud.io/summary/new_code?id=CodeMaru-Dreamine_Dreamine.Secs.Com)
+
 Dreamine.Secs.Com is the native Dreamine implementation of the first SECS-II / HSMS communication layer.
 
 [➡️ 한국어 문서 보기](https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com/blob/main/README_KO.md)
+
+## Install and start
+
+```powershell
+dotnet add package Dreamine.Secs.Com
+```
+
+Choose this package for native SECS-II encoding and HSMS Active/Passive TCP sessions. Start with the standalone [package QuickStart](https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com/tree/main/samples/Dreamine.Secs.Com.PackageQuickStart), which depends only on the published package and runs a bounded loopback Select, S1F1/F2, Linktest, and disconnect scenario.
 
 ## Implemented scope
 
@@ -24,7 +35,7 @@ See [`docs/SEMI_REQUIREMENTS_TRACE.md`](https://github.com/CodeMaru-Dreamine/Dre
 
 The Active Host and Passive Equipment samples use the provider-neutral APIs above and the reusable `Dreamine.SecsGem.Interop.Runtime` layer. Their defaults are loopback port `7000`, non-zero Session ID `7`, two bounded connection cycles, and a 120-second whole-run timeout. `--once` selects one connection cycle.
 
-The samples also accept `--profile`, `--template` with `--template-name`, `--scenario`, and `--log-directory`. The checked-in version-1 fixtures demonstrate a non-zero Session ID, a sample-only W0 template, bounded Connect/Select/Linktest execution, and persistent Header-Only JSONL logging. See [QUICKSTART.md](QUICKSTART.md) and [the fixture guide](samples/fixtures/README.md).
+The full-workspace samples also accept `--profile`, `--template` with `--template-name`, `--scenario`, and `--log-directory`. The checked-in version-1 fixtures demonstrate a non-zero Session ID, a sample-only W0 template, bounded Connect/Select/Linktest execution, and persistent Header-Only JSONL logging. See [QUICKSTART.md](https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com/blob/main/QUICKSTART.md) and [the fixture guide](https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com/blob/main/samples/fixtures/README.md).
 
 Inside the canonical full workspace, the sample projects deliberately use a source `ProjectReference` to `Dreamine.SecsGem.Interop.Runtime`. The published `Dreamine.Secs.Com` package contains the HSMS runtime, not that demo/workbench project. Use a clean package cache when switching from older local `1.0.0` artifacts to the published package set.
 
