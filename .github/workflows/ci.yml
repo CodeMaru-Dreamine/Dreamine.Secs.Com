@@ -12,7 +12,7 @@ permissions:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  NUGET_PACKAGES: ${{ runner.temp }}/nuget-packages
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
   SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
 jobs:
