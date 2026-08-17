@@ -12,6 +12,7 @@ public sealed class AssemblyBoundaryTests
     public void MarkerBelongsToExpectedAssembly()
     {
         Assert.Equal("Dreamine.Secs.Com", typeof(SecsComAssemblyMarker).Assembly.GetName().Name);
+        Assert.IsType<SecsComAssemblyMarker>(new SecsComAssemblyMarker());
     }
 
     [Fact]

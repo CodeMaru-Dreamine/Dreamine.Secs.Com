@@ -126,7 +126,7 @@ internal sealed class SecsPrimaryDispatcher : ISecsPrimaryDispatcher
             RecordDrop(primary);
             return PrimaryDispatchClaim.ClaimedDropped;
         }
-        var claimedRegistration = registration ?? throw new InvalidOperationException("A claimed Primary has no dispatcher registration.");
+        var claimedRegistration = registration!;
 
         var context = new PrimaryContext(
             connectionIdentity,
@@ -195,7 +195,7 @@ internal sealed class SecsPrimaryDispatcher : ISecsPrimaryDispatcher
     {
         try
         {
-            await foreach (var work in _queue.Reader.ReadAllAsync().ConfigureAwait(false))
+            await foreach (var work in _queue.Reader.ReadAllAsync(_lifetime.Token).ConfigureAwait(false))
             {
                 try
                 {

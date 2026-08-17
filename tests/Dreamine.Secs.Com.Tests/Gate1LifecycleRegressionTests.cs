@@ -710,7 +710,8 @@ public sealed class Gate1LifecycleRegressionTests
             var entryType = entry!.GetType();
             if (Assert.IsType<uint>(entryType.GetProperty("Key")!.GetValue(entry)) != systemBytes) continue;
             var value = entryType.GetProperty("Value")!.GetValue(entry)!;
-            return value.GetType().GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(value)!;
+            var monitor = value.GetType().GetField("_monitor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(value)!;
+            return monitor.GetType().GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(monitor)!;
         }
         throw new InvalidOperationException($"Pending transaction 0x{systemBytes:X8} was not found.");
     }

@@ -361,8 +361,7 @@ public sealed class HsmsSession : ISecsMessageSession
             {
                 if (receiveStart is not null)
                 {
-                    if (receiveCanStart) receiveStart.TrySetResult();
-                    else receiveStart.TrySetCanceled();
+                    if (receiveCanStart) receiveStart.TrySetResult(); else receiveStart.TrySetCanceled(cancellationToken);
                 }
             }
         }
@@ -1232,7 +1231,7 @@ public sealed class HsmsSession : ISecsMessageSession
         var ended = false;
         var reconnect = false;
         DetachedConnectionResources resources = default;
-        await _lifecycleGate.WaitAsync().ConfigureAwait(false);
+        await _lifecycleGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
             lock (_runGate)
