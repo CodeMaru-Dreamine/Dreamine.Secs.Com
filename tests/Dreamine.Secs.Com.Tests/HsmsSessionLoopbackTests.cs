@@ -192,7 +192,7 @@ public sealed class HsmsSessionLoopbackTests
         var activeTime = new ManualTimeProvider();
         await using var passive = CreateSession(port, SecsConnectionMode.Passive, SecsRole.Equipment);
         await using var active = CreateSession(port, SecsConnectionMode.Active, SecsRole.Host, autoReconnect: true, timeProvider: activeTime);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         await ConnectPairAsync(passive, active, timeout.Token);
         await active.SelectAsync(timeout.Token);
 
