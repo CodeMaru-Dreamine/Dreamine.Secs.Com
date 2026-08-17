@@ -6,10 +6,11 @@
     <AssemblyName>Dreamine.Secs.Com</AssemblyName>
     <RootNamespace>Dreamine.Secs.Com</RootNamespace>
     <PackageId>Dreamine.Secs.Com</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Authors>Dreamine Core Team</Authors>
     <Company>Dreamine</Company>
     <Description>Native Dreamine SECS-II and HSMS communication runtime with explicit verification boundaries.</Description>
+    <PackageReleaseNotes>1.0.1: adds a package-first loopback QuickStart, deterministic HSMS tests, NuGet onboarding fixes, CI and SonarQube Cloud analysis, and portable symbols with Source Link metadata.</PackageReleaseNotes>
     <PackageTags>dreamine;secs;communication;hsms;runtime</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com</RepositoryUrl>
@@ -31,9 +32,13 @@
     <None Remove="samples\**\*" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Secs.Abstractions\Dreamine.Secs.Abstractions.csproj" />
-    <ProjectReference Include="..\Communication.Abstractions\Dreamine.Communication.Abstractions.csproj" />
-    <ProjectReference Include="..\Communication.Core\Dreamine.Communication.Core.csproj" />
-    <ProjectReference Include="..\Communication.Sockets\Dreamine.Communication.Sockets.csproj" />
+    <ProjectReference Include="..\Secs.Abstractions\Dreamine.Secs.Abstractions.csproj" Condition="'$(UseLocalDreamineSources)' != 'false' And Exists('..\Secs.Abstractions\Dreamine.Secs.Abstractions.csproj')" />
+    <ProjectReference Include="..\Communication.Abstractions\Dreamine.Communication.Abstractions.csproj" Condition="'$(UseLocalDreamineSources)' != 'false' And Exists('..\Communication.Abstractions\Dreamine.Communication.Abstractions.csproj')" />
+    <ProjectReference Include="..\Communication.Core\Dreamine.Communication.Core.csproj" Condition="'$(UseLocalDreamineSources)' != 'false' And Exists('..\Communication.Core\Dreamine.Communication.Core.csproj')" />
+    <ProjectReference Include="..\Communication.Sockets\Dreamine.Communication.Sockets.csproj" Condition="'$(UseLocalDreamineSources)' != 'false' And Exists('..\Communication.Sockets\Dreamine.Communication.Sockets.csproj')" />
+    <PackageReference Include="Dreamine.Secs.Abstractions" Condition="'$(UseLocalDreamineSources)' == 'false' Or !Exists('..\Secs.Abstractions\Dreamine.Secs.Abstractions.csproj')" />
+    <PackageReference Include="Dreamine.Communication.Abstractions" Condition="'$(UseLocalDreamineSources)' == 'false' Or !Exists('..\Communication.Abstractions\Dreamine.Communication.Abstractions.csproj')" />
+    <PackageReference Include="Dreamine.Communication.Core" Condition="'$(UseLocalDreamineSources)' == 'false' Or !Exists('..\Communication.Core\Dreamine.Communication.Core.csproj')" />
+    <PackageReference Include="Dreamine.Communication.Sockets" Condition="'$(UseLocalDreamineSources)' == 'false' Or !Exists('..\Communication.Sockets\Dreamine.Communication.Sockets.csproj')" />
   </ItemGroup>
 </Project>

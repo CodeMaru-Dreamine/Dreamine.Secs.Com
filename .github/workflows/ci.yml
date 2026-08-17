@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+jobs:
+  build-test-pack:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore
+        run: dotnet restore tests/Dreamine.Secs.Com.Tests/Dreamine.Secs.Com.Tests.csproj
+      - name: Install SonarScanner
+        if: env.SONAR_TOKEN != ''
+        run: dotnet tool install --global dotnet-sonarscanner --version 11.2.1
+      - name: Begin SonarCloud analysis
+        if: env.SONAR_TOKEN != ''
+        shell: pwsh
+        run: dotnet sonarscanner begin /k:"CodeMaru-Dreamine_Dreamine.Secs.Com" /o:"codemaru-dreamine" /d:sonar.token="$env:SONAR_TOKEN" /d:sonar.host.url="https://sonarcloud.io" /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
+      - name: Build
+        run: dotnet build tests/Dreamine.Secs.Com.Tests/Dreamine.Secs.Com.Tests.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true
+      - name: Test with coverage
+        run: dotnet test tests/Dreamine.Secs.Com.Tests/Dreamine.Secs.Com.Tests.csproj --configuration Release --no-build --no-restore --collect:"XPlat Code Coverage;Format=opencover" --results-directory TestResults
+      - name: End SonarCloud analysis
+        if: env.SONAR_TOKEN != ''
+        shell: pwsh
+        run: dotnet sonarscanner end /d:sonar.token="$env:SONAR_TOKEN"
+      - name: Pack
+        run: dotnet pack Dreamine.Secs.Com.csproj --configuration Release --no-build --no-restore --output artifacts -p:ContinuousIntegrationBuild=true
+      - name: Verify package consumption
+        shell: pwsh
+        run: |
+          $package = Join-Path $PWD 'artifacts/Dreamine.Secs.Com.1.0.1.nupkg'
+          $symbols = Join-Path $PWD 'artifacts/Dreamine.Secs.Com.1.0.1.snupkg'
+          if (!(Test-Path -LiteralPath $package) -or !(Test-Path -LiteralPath $symbols)) { throw 'Expected package artifacts were not produced.' }
+          $smoke = Join-Path $env:RUNNER_TEMP 'consumer-smoke'
+          $artifactSource = Join-Path $PWD 'artifacts'
+          $nugetConfig = Join-Path $env:RUNNER_TEMP 'consumer-smoke.NuGet.Config'
+          @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration><packageSources><clear /><add key="artifacts" value="$artifactSource" /><add key="nuget.org" value="https://api.nuget.org/v3/index.json" /></packageSources></configuration>
+          "@ | Set-Content -LiteralPath $nugetConfig -Encoding utf8
+          dotnet new console --framework net8.0 --output $smoke --no-restore
+          dotnet add $smoke package Dreamine.Secs.Com --version 1.0.1 --no-restore
+          dotnet restore $smoke --configfile $nugetConfig
+          dotnet build $smoke --no-restore
+      - name: Run package QuickStart
+        shell: pwsh
+        run: |
+          $sample = 'samples/Dreamine.Secs.Com.PackageQuickStart/Dreamine.Secs.Com.PackageQuickStart.csproj'
+          $artifactSource = Join-Path $PWD 'artifacts'
+          $nugetConfig = Join-Path $env:RUNNER_TEMP 'quickstart.NuGet.Config'
+          @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration><packageSources><clear /><add key="artifacts" value="$artifactSource" /><add key="nuget.org" value="https://api.nuget.org/v3/index.json" /></packageSources></configuration>
+          "@ | Set-Content -LiteralPath $nugetConfig -Encoding utf8
+          dotnet restore $sample --configfile $nugetConfig -p:DreamineSelfPackageVersion=1.0.1
+          dotnet run --project $sample --configuration Release --no-restore -p:DreamineSelfPackageVersion=1.0.1

@@ -1,8 +1,19 @@
 # Dreamine.Secs.Com
 
+[![CI](https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com/actions/workflows/ci.yml/badge.svg)](https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com/actions/workflows/ci.yml)
+[![품질 게이트](https://sonarcloud.io/api/project_badges/measure?project=CodeMaru-Dreamine_Dreamine.Secs.Com&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=CodeMaru-Dreamine_Dreamine.Secs.Com) [![보안 등급](https://sonarcloud.io/api/project_badges/measure?project=CodeMaru-Dreamine_Dreamine.Secs.Com&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=CodeMaru-Dreamine_Dreamine.Secs.Com) [![테스트 커버리지](https://sonarcloud.io/api/project_badges/measure?project=CodeMaru-Dreamine_Dreamine.Secs.Com&metric=coverage)](https://sonarcloud.io/summary/new_code?id=CodeMaru-Dreamine_Dreamine.Secs.Com)
+
 Dreamine.Secs.Com은 Dreamine 자체 SECS-II / HSMS 1차 통신 구현입니다.
 
 [➡️ English Version](https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com/blob/main/README.md)
+
+## 설치와 시작
+
+```powershell
+dotnet add package Dreamine.Secs.Com
+```
+
+Native SECS-II Encoding과 HSMS Active/Passive TCP Session이 필요할 때 선택합니다. 공개 패키지만 참조하며 제한된 Loopback Select, S1F1/F2, Linktest, Disconnect Scenario를 실행하는 독립형 [Package QuickStart](https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com/tree/main/samples/Dreamine.Secs.Com.PackageQuickStart)부터 시작하십시오.
 
 ## 구현 범위
 
@@ -24,7 +35,7 @@ Dreamine.Secs.Com은 Dreamine 자체 SECS-II / HSMS 1차 통신 구현입니다.
 
 Active Host와 Passive Equipment 샘플은 위 provider-neutral API와 재사용 가능한 `Dreamine.SecsGem.Interop.Runtime` 계층을 사용합니다. 기본값은 loopback port `7000`, 0이 아닌 Session ID `7`, 제한된 연결 2회, 전체 실행 timeout 120초입니다. `--once`를 지정하면 연결을 1회만 실행합니다.
 
-샘플은 `--profile`, `--template`과 `--template-name`, `--scenario`, `--log-directory`도 받습니다. 저장소의 version-1 fixture는 0이 아닌 Session ID, 샘플 전용 W0 Template, 제한 시간 안의 Connect/Select/Linktest 실행, 지속형 Header-Only JSONL 로그를 보여 줍니다. [QUICKSTART_KO.md](QUICKSTART_KO.md)와 [fixture 안내](samples/fixtures/README.md)를 참고하십시오.
+Full Workspace 샘플은 `--profile`, `--template`과 `--template-name`, `--scenario`, `--log-directory`도 받습니다. 저장소의 version-1 fixture는 0이 아닌 Session ID, 샘플 전용 W0 Template, 제한 시간 안의 Connect/Select/Linktest 실행, 지속형 Header-Only JSONL 로그를 보여 줍니다. [QUICKSTART_KO.md](https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com/blob/main/QUICKSTART_KO.md)와 [fixture 안내](https://github.com/CodeMaru-Dreamine/Dreamine.Secs.Com/blob/main/samples/fixtures/README.md)를 참고하십시오.
 
 Canonical full workspace 안에서는 sample project가 `Dreamine.SecsGem.Interop.Runtime` source를 의도적으로 `ProjectReference`합니다. 게시된 `Dreamine.Secs.Com` package에는 HSMS runtime이 포함되며 해당 Demo/Workbench project는 포함되지 않습니다. 과거 로컬 `1.0.0` 산출물에서 게시 package 세트로 전환할 때는 깨끗한 package cache를 사용하십시오.
 
