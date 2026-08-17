@@ -269,52 +269,18 @@ public sealed class SecsTransactionManager : IAsyncDisposable
 
     private sealed class PendingTransaction(SecsMessage primary, SecsFunction? expectedSecondary)
     {
-        private readonly object _gate = new();
-        private readonly CancellationTokenSource _lifetime = new();
-        private bool _removed;
-        private bool _monitorStarted;
-        private bool _lifetimeDisposed;
+        private readonly PendingMonitor _monitor = new();
 
         public SecsMessage Primary { get; } = primary;
         public SecsFunction? ExpectedSecondary { get; } = expectedSecondary;
         public TaskCompletionSource<SecsMessage> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public bool TryStartMonitor(Func<CancellationToken, Task> monitorFactory, out Task? monitor)
-        {
-            lock (_gate)
-                return PendingMonitor.TryStart(
-                    _removed,
-                    ref _monitorStarted,
-                    _lifetime,
-                    monitorFactory,
-                    "The transaction timeout was already started.",
-                    out monitor);
-        }
+        public bool TryStartMonitor(Func<CancellationToken, Task> monitorFactory, out Task? monitor) =>
+            _monitor.TryStart(monitorFactory, "The transaction timeout was already started.", out monitor);
 
-        public void CancelFromOwner()
-        {
-            lock (_gate)
-            {
-                if (_removed) return;
-                _removed = true;
-                if (_lifetimeDisposed) return;
-                _lifetime.Cancel();
-                if (_monitorStarted) return;
-                _lifetime.Dispose();
-                _lifetimeDisposed = true;
-            }
-        }
+        public void CancelFromOwner() => _monitor.CancelFromOwner();
 
-        public void DisposeAfterMonitor()
-        {
-            lock (_gate)
-            {
-                _removed = true;
-                if (_lifetimeDisposed) return;
-                _lifetime.Dispose();
-                _lifetimeDisposed = true;
-            }
-        }
+        public void DisposeAfterMonitor() => _monitor.DisposeAfterMonitor();
 
     }
 
