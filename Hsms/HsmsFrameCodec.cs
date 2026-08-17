@@ -176,8 +176,7 @@ public sealed class HsmsFrameCodec
 
     private static int GetTotalLength(int frameLength, int offset, HsmsHeader? header = null)
     {
-        if (frameLength > int.MaxValue - LengthPrefixSize)
-            throw Error(SecsValidationCode.InvalidLength, "HSMS frame plus length prefix exceeds the supported integer range.", offset, header);
+        if (frameLength > int.MaxValue - LengthPrefixSize) throw Error(SecsValidationCode.InvalidLength, "HSMS frame plus length prefix exceeds the supported integer range.", offset, header);
         return LengthPrefixSize + frameLength;
     }
 

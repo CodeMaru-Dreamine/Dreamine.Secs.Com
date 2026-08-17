@@ -227,17 +227,13 @@ public sealed class HsmsControlTransactionManager : IAsyncDisposable
         public bool TryStartMonitor(Func<CancellationToken, Task> monitorFactory, out Task? monitor)
         {
             lock (_gate)
-            {
-                if (_removed)
-                {
-                    monitor = null;
-                    return false;
-                }
-                if (_monitorStarted) throw new InvalidOperationException("The control timeout was already started.");
-                _monitorStarted = true;
-                monitor = monitorFactory(_lifetime.Token);
-                return true;
-            }
+                return PendingMonitor.TryStart(
+                    _removed,
+                    ref _monitorStarted,
+                    _lifetime,
+                    monitorFactory,
+                    "The control timeout was already started.",
+                    out monitor);
         }
 
         public void CancelFromOwner()

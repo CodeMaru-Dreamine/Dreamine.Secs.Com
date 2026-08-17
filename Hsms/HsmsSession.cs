@@ -361,8 +361,7 @@ public sealed class HsmsSession : ISecsMessageSession
             {
                 if (receiveStart is not null)
                 {
-                    if (receiveCanStart) receiveStart.TrySetResult();
-                    else receiveStart.TrySetCanceled(cancellationToken);
+                    if (receiveCanStart) receiveStart.TrySetResult(); else receiveStart.TrySetCanceled(cancellationToken);
                 }
             }
         }
