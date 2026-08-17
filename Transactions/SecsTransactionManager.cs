@@ -112,13 +112,14 @@ public sealed class SecsTransactionManager : IAsyncDisposable
             if (!_pending.TryGetValue(systemBytes.Value, out var pending)) return false;
             var drain = new ProtocolDrainRegistration(this);
             _protocolDrains.Add(drain);
-            var monitor = pending.TryStartMonitor(token => MonitorAsync(pending, drain, t3, cancellationToken, token, _lifetime.Token));
-            if (monitor is null)
+            if (!pending.TryStartMonitor(
+                    token => MonitorAsync(pending, drain, t3, cancellationToken, token, _lifetime.Token),
+                    out var monitor))
             {
                 drain.Complete();
                 return false;
             }
-            BackgroundTaskObserver.Observe(monitor, "T3 transaction monitor and external diagnostic delivery");
+            BackgroundTaskObserver.Observe(monitor!, "T3 transaction monitor and external diagnostic delivery");
             return true;
         }
     }
@@ -278,14 +279,19 @@ public sealed class SecsTransactionManager : IAsyncDisposable
         public SecsFunction? ExpectedSecondary { get; } = expectedSecondary;
         public TaskCompletionSource<SecsMessage> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public Task? TryStartMonitor(Func<CancellationToken, Task> monitorFactory)
+        public bool TryStartMonitor(Func<CancellationToken, Task> monitorFactory, out Task? monitor)
         {
             lock (_gate)
             {
-                if (_removed) return null;
+                if (_removed)
+                {
+                    monitor = null;
+                    return false;
+                }
                 if (_monitorStarted) throw new InvalidOperationException("The transaction timeout was already started.");
                 _monitorStarted = true;
-                return monitorFactory(_lifetime.Token);
+                monitor = monitorFactory(_lifetime.Token);
+                return true;
             }
         }
 

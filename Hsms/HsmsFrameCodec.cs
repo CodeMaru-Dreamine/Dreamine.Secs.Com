@@ -50,7 +50,8 @@ public sealed class HsmsFrameCodec
         var frameLength = checked(HeaderLength + textLength);
         ValidateFrameLength(frameLength, 0, message.Header);
         var text = item is null ? Array.Empty<byte>() : _itemCodec.EncodeValidated(item, textLength);
-        var frame = new byte[LengthPrefixSize + frameLength];
+        var totalLength = GetTotalLength(frameLength, 0, message.Header);
+        var frame = new byte[totalLength];
         BinaryPrimitives.WriteUInt32BigEndian(frame, (uint)frameLength);
         WriteHeader(frame.AsSpan(LengthPrefixSize, HeaderLength), message.Header);
         text.CopyTo(frame, LengthPrefixSize + HeaderLength);
@@ -70,9 +71,10 @@ public sealed class HsmsFrameCodec
         var frameLength = (int)declared;
         ValidateFrameLength(frameLength, 0, headerContext);
         ValidateMessageLength(frameLength, 0, headerContext);
-        if (frame.Length != LengthPrefixSize + frameLength)
+        var totalLength = GetTotalLength(frameLength, 0, headerContext);
+        if (frame.Length != totalLength)
         {
-            var code = frame.Length < LengthPrefixSize + frameLength ? SecsValidationCode.Truncated : SecsValidationCode.TrailingData;
+            var code = frame.Length < totalLength ? SecsValidationCode.Truncated : SecsValidationCode.TrailingData;
             throw Error(code, $"Declared HSMS length is {frameLength}, actual is {frame.Length - LengthPrefixSize}.", LengthPrefixSize, headerContext);
         }
         var header = headerContext!.Value;
@@ -116,7 +118,8 @@ public sealed class HsmsFrameCodec
         var frameLength = (int)declared;
         ValidateFrameLength(frameLength, 0);
         ValidateMessageLength(frameLength, 0);
-        var frame = new byte[LengthPrefixSize + frameLength];
+        var totalLength = GetTotalLength(frameLength, 0);
+        var frame = new byte[totalLength];
         prefix.CopyTo(frame, 0);
         try
         {
@@ -169,6 +172,13 @@ public sealed class HsmsFrameCodec
         var messageLength = frameLength - HeaderLength;
         if (messageLength > _itemCodec.MaximumMessageLength)
             throw Error(SecsValidationCode.SizeLimitExceeded, $"HSMS message text exceeds {_itemCodec.MaximumMessageLength} bytes.", offset, header);
+    }
+
+    private static int GetTotalLength(int frameLength, int offset, HsmsHeader? header = null)
+    {
+        if (frameLength > int.MaxValue - LengthPrefixSize)
+            throw Error(SecsValidationCode.InvalidLength, "HSMS frame plus length prefix exceeds the supported integer range.", offset, header);
+        return LengthPrefixSize + frameLength;
     }
 
     private static bool IsSupportedSType(byte value) => value is 0 or 1 or 2 or 3 or 4 or 5 or 6 or 7 or 9;

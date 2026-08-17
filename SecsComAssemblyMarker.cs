@@ -10,7 +10,6 @@ namespace Dreamine.Secs.Com;
 /// </summary>
 public sealed class SecsComAssemblyMarker
 {
-    private SecsComAssemblyMarker()
-    {
-    }
+    /// <summary>\if KO SECS 통신 어셈블리 표식을 만듭니다. \endif \if EN Creates a SECS communication assembly marker. \endif</summary>
+    public SecsComAssemblyMarker() { }
 }
